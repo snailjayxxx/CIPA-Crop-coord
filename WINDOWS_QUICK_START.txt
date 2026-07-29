@@ -1,0 +1,40 @@
+CIPA Crop & Coord — Windows 测试步骤
+=====================================
+
+一、第一次在 Windows 构建 EXE
+
+1. 解压本压缩包（不要直接在压缩包内运行）。
+2. 在构建电脑安装 64 位 Python 3.11：
+   https://www.python.org/downloads/release/python-3119/
+3. 安装 Python 时勾选 “Add python.exe to PATH”。
+4. 双击 build_windows.bat。
+5. 首次构建需要联网下载依赖，请等待窗口显示：
+   Build complete: dist\CIPA-Crop-Coord.exe
+
+
+二、运行软件
+
+双击：
+
+dist\CIPA-Crop-Coord.exe
+
+以后可以只把这个 EXE 复制给客户。客户电脑不需要安装 Python。
+
+
+三、建议的首次测试
+
+1. 先准备 3～5 张复制出来的测试照片。
+2. 打开“① 相似区域裁切”。
+3. 选择 sample 图片、测试照片文件夹、一个空的输出文件夹。
+4. 用“在图片上选择”框选 sample 有效范围。
+5. 相似度先使用默认的 0.70，边缘屏蔽先使用 10%。
+6. 检查输出裁切范围和 1_100_abc.jpg 形式的文件名。
+7. 再分别测试中心裁切和 CSV 坐标导出。
+
+
+注意
+
+- build_windows.bat 所在路径尽量不要过长。
+- 杀毒软件可能会对首次生成的未签名 EXE 进行扫描。
+- 正式批量处理前，建议始终先使用少量复制照片验证参数。
+- 详细功能说明请查看 README.md。
