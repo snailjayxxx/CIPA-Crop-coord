@@ -6,16 +6,20 @@ from typing import Callable
 from PIL import Image
 from PySide6.QtCore import QObject,QPoint,QRect,QSize,Qt,QThread,Signal,Slot
 from PySide6.QtGui import QCloseEvent,QImageReader,QMouseEvent,QPixmap,QWheelEvent
-from PySide6.QtWidgets import (QApplication,QButtonGroup,QCheckBox,QComboBox,QDialog,QDialogButtonBox,QDoubleSpinBox,QFileDialog,QFormLayout,QGridLayout,QGroupBox,QHBoxLayout,QLabel,QLineEdit,QMainWindow,QMessageBox,QPlainTextEdit,QProgressBar,QPushButton,QRadioButton,QScrollArea,QSizePolicy,QSpinBox,QTabWidget,QToolBar,QVBoxLayout,QWidget)
+from PySide6.QtWidgets import (QAbstractSpinBox,QApplication,QButtonGroup,QCheckBox,QComboBox,QDialog,QDialogButtonBox,QDoubleSpinBox,QFileDialog,QFormLayout,QGridLayout,QGroupBox,QHBoxLayout,QLabel,QLineEdit,QMainWindow,QMessageBox,QPlainTextEdit,QProgressBar,QPushButton,QRadioButton,QScrollArea,QSizePolicy,QSpinBox,QTabWidget,QToolBar,QVBoxLayout,QWidget)
 from .engine import DEFAULT_SEARCH_MASK,DEFAULT_THRESHOLD,DEFAULT_WORKERS,Cancelled,MatchSettings,Rect,center_crop,export_coords,match_crop
 from .locales import tr
 
 STYLE="""
 QWidget{font-size:13px}QMainWindow{background:#f5f6f8}QGroupBox{font-weight:600;border:1px solid #d4d8df;border-radius:7px;margin-top:10px;padding:12px 8px 8px;background:white}QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 4px}
 QLineEdit,QPlainTextEdit{border:1px solid #c9ced7;border-radius:5px;padding:5px;background:white}
-QSpinBox,QDoubleSpinBox{border:1px solid #c9ced7;border-radius:5px;padding:4px 30px 4px 6px;min-height:26px;background:white}QSpinBox::up-button,QDoubleSpinBox::up-button{subcontrol-origin:border;subcontrol-position:top right;width:26px;border-left:1px solid #c9ced7}QSpinBox::down-button,QDoubleSpinBox::down-button{subcontrol-origin:border;subcontrol-position:bottom right;width:26px;border-left:1px solid #c9ced7}
+QSpinBox,QDoubleSpinBox{border:1px solid #c9ced7;border-radius:5px;padding:4px 6px;min-height:26px;background:white}
 QPushButton{border:1px solid #b8bec8;border-radius:5px;padding:6px 12px;background:white}QPushButton:hover{background:#eef3fb}QPushButton#primary{color:white;background:#1769e0;border-color:#1769e0;font-weight:600}QPushButton#primary:disabled{background:#9db9df;border-color:#9db9df}QProgressBar{border:1px solid #c9ced7;border-radius:5px;text-align:center}QProgressBar::chunk{background:#2d7be8;border-radius:4px}QTabBar::tab{padding:9px 18px;background:#e8ebf0}QTabBar::tab:selected{background:white;font-weight:600}
 """
+
+def manual_number(spin):
+    spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    return spin
 
 class PathChooser(QWidget):
     def __init__(self,lang,mode,save_key=""):
@@ -80,7 +84,7 @@ class RegionEditor(QWidget):
     def __init__(self,lang,image_getter:Callable[[],str]):
         super().__init__();self.lang=lang;self.get_image=image_getter;self.spins=[];l=QHBoxLayout(self);l.setContentsMargins(0,0,0,0)
         for key in ("x","y","w","h"):
-            l.addWidget(QLabel(tr(lang,key)));s=QSpinBox();s.setRange(0,200000);s.setMinimumWidth(108);self.spins.append(s);l.addWidget(s)
+            l.addWidget(QLabel(tr(lang,key)));s=manual_number(QSpinBox());s.setRange(0,200000);s.setMinimumWidth(108);self.spins.append(s);l.addWidget(s)
         b=QPushButton(tr(lang,"pick"));b.clicked.connect(self.pick);l.addWidget(b);l.addWidget(QLabel(tr(lang,"template_hint")),1)
     def rect(self):return Rect(*(s.value() for s in self.spins))
     def pick(self):
@@ -95,7 +99,7 @@ class RegionEditor(QWidget):
 
 class SearchMask(QWidget):
     def __init__(self,lang):
-        super().__init__();self.lang=lang;self.last="";self.spin=QDoubleSpinBox();self.spin.setRange(0,45);self.spin.setDecimals(2);self.spin.setValue(DEFAULT_SEARCH_MASK);self.spin.setSuffix(" %");self.spin.setMinimumWidth(120);b=QPushButton(tr(lang,"pick"));b.clicked.connect(self.pick);l=QHBoxLayout(self);l.setContentsMargins(0,0,0,0);l.addWidget(self.spin);l.addWidget(b);l.addWidget(QLabel(tr(lang,"search_note")),1)
+        super().__init__();self.lang=lang;self.last="";self.spin=manual_number(QDoubleSpinBox());self.spin.setRange(0,45);self.spin.setDecimals(2);self.spin.setValue(DEFAULT_SEARCH_MASK);self.spin.setSuffix(" %");self.spin.setMinimumWidth(120);b=QPushButton(tr(lang,"pick"));b.clicked.connect(self.pick);l=QHBoxLayout(self);l.setContentsMargins(0,0,0,0);l.addWidget(self.spin);l.addWidget(b);l.addWidget(QLabel(tr(lang,"search_note")),1)
     def initial(self,path):
         fw,fh=RegionDialog.oriented(path);p=self.spin.value()/100;mx=round(fw*p);my=round(fh*p);return Rect(mx,my,fw-2*mx,fh-2*my)
     def pick(self):
@@ -120,7 +124,7 @@ class Worker(QObject):
 
 class BatchTab(QWidget):
     def __init__(self,lang):
-        super().__init__();self.lang=lang;self.thread=None;self.worker=None;self.content=QVBoxLayout(self);self.content.setContentsMargins(14,14,14,14);self.progress=QProgressBar();self.progress.setRange(0,1);self.log=QPlainTextEdit();self.log.setReadOnly(True);self.log.setMinimumHeight(130);self.debug=QCheckBox(tr(lang,"debug"));self.debug.setToolTip(tr(lang,"debug_tip"));self.workers=QSpinBox();self.workers.setRange(1,max(2,min(8,os.cpu_count() or 2)));self.workers.setValue(min(DEFAULT_WORKERS,self.workers.maximum()));self.workers.setToolTip(tr(lang,"threads_tip"));self.run=QPushButton(tr(lang,"start"));self.run.setObjectName("primary");self.cancel=QPushButton(tr(lang,"cancel"));self.cancel.setEnabled(False);self.cancel.clicked.connect(self.stop)
+        super().__init__();self.lang=lang;self.thread=None;self.worker=None;self.content=QVBoxLayout(self);self.content.setContentsMargins(14,14,14,14);self.progress=QProgressBar();self.progress.setRange(0,1);self.log=QPlainTextEdit();self.log.setReadOnly(True);self.log.setMinimumHeight(130);self.debug=QCheckBox(tr(lang,"debug"));self.debug.setToolTip(tr(lang,"debug_tip"));self.workers=manual_number(QSpinBox());self.workers.setRange(1,max(2,min(8,os.cpu_count() or 2)));self.workers.setValue(min(DEFAULT_WORKERS,self.workers.maximum()));self.workers.setToolTip(tr(lang,"threads_tip"));self.run=QPushButton(tr(lang,"start"));self.run.setObjectName("primary");self.cancel=QPushButton(tr(lang,"cancel"));self.cancel.setEnabled(False);self.cancel.clicked.connect(self.stop)
     def footer(self):
         o=QHBoxLayout();o.addWidget(self.debug);o.addStretch();o.addWidget(QLabel(tr(self.lang,"threads")));o.addWidget(self.workers);self.content.addLayout(o);self.content.addWidget(self.progress);self.content.addWidget(self.log,1);b=QHBoxLayout();b.addStretch();b.addWidget(self.cancel);b.addWidget(self.run);self.content.addLayout(b)
     def common(self):return {"lang":self.lang,"workers":self.workers.value(),"debug":self.debug.isChecked()}
@@ -138,7 +142,7 @@ class BatchTab(QWidget):
 
 class MatchOpts(QGroupBox):
     def __init__(self,lang,sample):
-        super().__init__(tr(lang,"match_group"));self.lang=lang;self.region=RegionEditor(lang,sample.text);self.search=SearchMask(lang);self.edge=QDoubleSpinBox();self.edge.setRange(0,45);self.edge.setValue(10);self.edge.setSuffix(" %");self.sim=QDoubleSpinBox();self.sim.setRange(-1,1);self.sim.setDecimals(3);self.sim.setSingleStep(.01);self.sim.setValue(DEFAULT_THRESHOLD);f=QFormLayout(self);f.addRow(tr(lang,"template"),self.region);f.addRow(tr(lang,"search_mask"),self.search);f.addRow(tr(lang,"edge"),self.edge);f.addRow(tr(lang,"similarity"),self.sim)
+        super().__init__(tr(lang,"match_group"));self.lang=lang;self.region=RegionEditor(lang,sample.text);self.search=SearchMask(lang);self.edge=manual_number(QDoubleSpinBox());self.edge.setRange(0,45);self.edge.setValue(10);self.edge.setSuffix(" %");self.sim=manual_number(QDoubleSpinBox());self.sim.setRange(-1,1);self.sim.setDecimals(3);self.sim.setSingleStep(.01);self.sim.setValue(DEFAULT_THRESHOLD);f=QFormLayout(self);f.addRow(tr(lang,"template"),self.region);f.addRow(tr(lang,"search_mask"),self.search);f.addRow(tr(lang,"edge"),self.edge);f.addRow(tr(lang,"similarity"),self.sim)
     def value(self):return MatchSettings(self.region.rect(),self.edge.value(),self.search.spin.value(),self.sim.value())
 
 def path_check(parent,lang,pairs):
@@ -146,7 +150,7 @@ def path_check(parent,lang,pairs):
     if miss:QMessageBox.warning(parent,tr(lang,"missing"),tr(lang,"select_missing",items="、".join(miss)));return False
     return True
 
-def quality():q=QSpinBox();q.setRange(1,100);q.setValue(95);q.setSuffix(" %");return q
+def quality():q=manual_number(QSpinBox());q.setRange(1,100);q.setValue(100);q.setSuffix(" %");return q
 
 class MatchTab(BatchTab):
     def __init__(self,lang):
@@ -156,7 +160,7 @@ class MatchTab(BatchTab):
 
 class CenterTab(BatchTab):
     def __init__(self,lang):
-        super().__init__(lang);g=QGroupBox(tr(lang,"paths"));f=QFormLayout(g);self.input=PathChooser(lang,"folder");self.output=PathChooser(lang,"folder");f.addRow(tr(lang,"input"),self.input);f.addRow(tr(lang,"output"),self.output);sg=QGroupBox(tr(lang,"center_group"));grid=QGridLayout(sg);self.fixed=QRadioButton(tr(lang,"fixed"));self.ratio=QRadioButton(tr(lang,"ratio"));self.fixed.setChecked(True);bg=QButtonGroup(self);bg.addButton(self.fixed);bg.addButton(self.ratio);self.w=QSpinBox();self.h=QSpinBox()
+        super().__init__(lang);g=QGroupBox(tr(lang,"paths"));f=QFormLayout(g);self.input=PathChooser(lang,"folder");self.output=PathChooser(lang,"folder");f.addRow(tr(lang,"input"),self.input);f.addRow(tr(lang,"output"),self.output);sg=QGroupBox(tr(lang,"center_group"));grid=QGridLayout(sg);self.fixed=QRadioButton(tr(lang,"fixed"));self.ratio=QRadioButton(tr(lang,"ratio"));self.fixed.setChecked(True);bg=QButtonGroup(self);bg.addButton(self.fixed);bg.addButton(self.ratio);self.w=manual_number(QSpinBox());self.h=manual_number(QSpinBox())
         for s in (self.w,self.h):s.setRange(1,200000);s.setValue(1000);s.setSuffix(" px")
         self.r=QLineEdit("1/3");self.r.setPlaceholderText(tr(lang,"ratio_ph"));self.r.setEnabled(False);self.fixed.toggled.connect(lambda on:(self.w.setEnabled(on),self.h.setEnabled(on),self.r.setEnabled(not on)));grid.addWidget(self.fixed,0,0);grid.addWidget(QLabel(tr(lang,"w")+"："),0,1);grid.addWidget(self.w,0,2);grid.addWidget(QLabel(tr(lang,"h")+"："),0,3);grid.addWidget(self.h,0,4);grid.addWidget(self.ratio,1,0);grid.addWidget(QLabel(tr(lang,"ratio_label")),1,1,1,2);grid.addWidget(self.r,1,3,1,2);og=QGroupBox(tr(lang,"output_group"));of=QFormLayout(og);self.q=quality();of.addRow(tr(lang,"quality"),self.q);of.addRow("",QLabel(tr(lang,"center_note")));self.content.addWidget(g);self.content.addWidget(sg);self.content.addWidget(og);self.footer();self.run.clicked.connect(self.go)
     def go(self):
