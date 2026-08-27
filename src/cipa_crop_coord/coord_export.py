@@ -11,6 +11,7 @@ from .engine import Cancelled, Summary, debug_write, images, parallel, read, ste
 
 
 MODE_RELATIVE_PREVIOUS = "relative_previous"
+MODE_RELATIVE_FIRST = "relative_first"
 MODE_ABSOLUTE = "absolute"
 
 
@@ -30,7 +31,7 @@ def python_match_center(image: np.ndarray, template: np.ndarray) -> PythonMatchR
 
     The reference script performs full-color TM_CCOEFF_NORMED template matching,
     takes cv2.minMaxLoc(...).max_loc, then records the center of the matched
-    template rectangle.  No grayscale conversion, thresholding, edge masking,
+    template rectangle. No grayscale conversion, thresholding, edge masking,
     search masking, coarse matching, refinement, or similarity cutoff is used.
     """
     if image is None or template is None:
@@ -87,13 +88,23 @@ def _header(lang: str, mode: str) -> tuple[str, str, str]:
     if lang == "ja":
         if mode == MODE_RELATIVE_PREVIOUS:
             return ("ファイル名", "Δx（前画像比）", "Δy（前画像比）")
+        if mode == MODE_RELATIVE_FIRST:
+            return ("ファイル名", "Δx（1枚目比）", "Δy（1枚目比）")
         return ("ファイル名", "x座標", "y座標")
     if mode == MODE_RELATIVE_PREVIOUS:
         return ("文件名", "Δx（相对上一张）", "Δy（相对上一张）")
+    if mode == MODE_RELATIVE_FIRST:
+        return ("文件名", "Δx（相对第一张）", "Δy（相对第一张）")
     return ("文件名", "x坐标", "y坐标")
 
 
-def _debug_match(debug_folder: Path, index: int, path: Path, image: np.ndarray, match: PythonMatchResult) -> None:
+def _debug_match(
+    debug_folder: Path,
+    index: int,
+    path: Path,
+    image: np.ndarray,
+    match: PythonMatchResult,
+) -> None:
     output = image.copy()
     top_left = (match.top_left_x, match.top_left_y)
     bottom_right = (match.top_left_x + match.width, match.top_left_y + match.height)
@@ -116,7 +127,8 @@ def export_coords_python(
     workers: int = 2,
     debug: bool = False,
 ) -> Summary:
-    if mode not in {MODE_RELATIVE_PREVIOUS, MODE_ABSOLUTE}:
+    valid_modes = {MODE_RELATIVE_PREVIOUS, MODE_RELATIVE_FIRST, MODE_ABSOLUTE}
+    if mode not in valid_modes:
         raise ValueError(f"Unsupported coordinate mode: {mode}")
 
     output = Path(csv_path)
@@ -156,6 +168,8 @@ def export_coords_python(
 
     rows: list[tuple[str, str | int, str | int]] = []
     previous_by_folder: dict[Path, tuple[int, int] | None] = {}
+    first_by_folder: dict[Path, tuple[int, int]] = {}
+
     for result in results:
         if result is None:
             continue
@@ -163,14 +177,25 @@ def export_coords_python(
         if status != "ok":
             summary.failed += 1
             rows.append((name, "", ""))
-            previous_by_folder[parent] = None
+            if mode == MODE_RELATIVE_PREVIOUS:
+                previous_by_folder[parent] = None
             continue
 
         summary.succeeded += 1
         x = int(x)
         y = int(y)
+
         if mode == MODE_ABSOLUTE:
             rows.append((name, x, y))
+            continue
+
+        if mode == MODE_RELATIVE_FIRST:
+            first = first_by_folder.get(parent)
+            if first is None:
+                first_by_folder[parent] = (x, y)
+                rows.append((name, 0, 0))
+            else:
+                rows.append((name, x - first[0], y - first[1]))
             continue
 
         previous = previous_by_folder.get(parent)
