@@ -10,13 +10,13 @@ from .engine import Cancelled, Summary, parallel
 from .locales import tr
 
 
-OUTPUT_DIR_NAME = "resize_images"
 DEFAULT_RESIZE_RATIO = 0.25
 EXTENSION = ".jpg"
 
 
 def resize_images_tool7(
     input_folder: str,
+    output_folder: str,
     ratio: float = DEFAULT_RESIZE_RATIO,
     progress=None,
     cancel=None,
@@ -24,14 +24,19 @@ def resize_images_tool7(
     workers: int = 2,
     debug: bool = False,
 ) -> Summary:
-    """Batch resize JPG files using the same per-image pipeline as tool_7_resize_image(1).py.
+    """Batch resize JPG files with Tool 7-compatible OpenCV image processing.
 
-    Compatibility-critical operations are intentionally kept as:
+    The destination root is user-selected, but the compatibility-critical per-image
+    operations remain exactly:
       cv2.imread -> cv2.resize(fx=ratio, fy=ratio) -> cv2.imwrite(no params)
-    Output directory name and recursive *.jpg discovery also match the source script.
+
+    Relative subfolder structure below the selected input folder is preserved below
+    the selected output folder so files with identical names do not overwrite each other.
     """
     del debug
+
     selected = Path(input_folder)
+    output_root = Path(output_folder)
     if not selected.is_dir():
         raise ValueError(tr(lang, "folder_missing", path=selected))
 
@@ -39,46 +44,58 @@ def resize_images_tool7(
     if ratio <= 0:
         raise ValueError(tr(lang, "resize_ratio_positive"))
 
-    files = [Path(p) for p in glob.glob(os.path.join(input_folder, "**", "*.jpg"), recursive=True)]
-    summary = Summary(total=len(files), output_path=str(selected))
+    try:
+        output_resolved = output_root.resolve()
+    except OSError:
+        output_resolved = output_root.absolute()
+
+    candidates = [
+        Path(p)
+        for p in glob.glob(os.path.join(input_folder, "**", "*.jpg"), recursive=True)
+    ]
+
+    # If the user places the output folder inside the input tree, never feed existing
+    # output JPGs back into the same batch.
+    files: list[Path] = []
+    for file in candidates:
+        try:
+            file_resolved = file.resolve()
+            if file_resolved == output_resolved or file_resolved.is_relative_to(output_resolved):
+                continue
+        except OSError:
+            pass
+        files.append(file)
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    summary = Summary(total=len(files), output_path=str(output_root))
 
     if cancel and cancel():
         raise Cancelled()
 
     def one(index: int, file: Path):
         try:
-            dir_of_file = os.path.dirname(str(file))
-            dir_of_output = dir_of_file + "/" + OUTPUT_DIR_NAME
-            os.makedirs(dir_of_output, exist_ok=True)
+            relative = file.relative_to(selected)
+            destination = output_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
 
-            # Keep the same OpenCV load/resize/save calls as the source Python.
+            # Keep the same OpenCV load/resize/save calls as tool_7_resize_image(1).py.
             image = cv2.imread(str(file))
             resize_image = cv2.resize(image, (0, 0), fx=ratio, fy=ratio)
-            root, ext = os.path.splitext(str(file))
-            name_of_file = os.path.basename(root)
-            destination = dir_of_output + "/" + name_of_file + ext
-            if not cv2.imwrite(destination, resize_image):
+            if not cv2.imwrite(str(destination), resize_image):
                 raise ValueError(tr(lang, "resize_write_failed", path=destination))
 
-            return index, tr(lang, "resize_done", name=file.name), ("ok", destination)
+            return index, tr(lang, "resize_done", name=file.name), ("ok", str(destination))
         except Exception as exc:
             return index, tr(lang, "fail", name=file.name, error=exc), ("fail", None)
 
     results = parallel(files, one, workers, progress, cancel)
-    output_dirs: set[str] = set()
     for result in results:
         if not result:
             continue
-        status, destination = result
+        status, _destination = result
         if status == "ok":
             summary.succeeded += 1
-            if destination:
-                output_dirs.add(str(Path(destination).parent))
         else:
             summary.failed += 1
 
-    if len(output_dirs) == 1:
-        summary.output_path = next(iter(output_dirs))
-    else:
-        summary.output_path = tr(lang, "resize_output_multiple", root=selected)
     return summary
