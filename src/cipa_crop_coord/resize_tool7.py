@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from .engine import Cancelled, Summary, parallel
 from .locales import tr
@@ -12,6 +13,30 @@ from .locales import tr
 
 DEFAULT_RESIZE_RATIO = 0.25
 EXTENSION = ".jpg"
+
+
+def _imread_unicode(path: Path):
+    """Read an image with OpenCV decoding while supporting Unicode Windows paths."""
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+
+def _imwrite_jpeg_unicode(path: Path, image) -> bool:
+    """Encode JPEG with OpenCV defaults and write through Unicode-safe Python I/O."""
+    ok, encoded = cv2.imencode(".jpg", image)
+    if not ok:
+        return False
+    try:
+        with path.open("wb") as stream:
+            encoded.tofile(stream)
+        return True
+    except OSError:
+        return False
 
 
 def resize_images_tool7(
@@ -24,12 +49,10 @@ def resize_images_tool7(
     workers: int = 2,
     debug: bool = False,
 ) -> Summary:
-    """Batch resize JPG files with Tool 7-compatible OpenCV image processing.
+    """Recursively resize JPG files into a user-selected output folder.
 
-    The destination root is user-selected, but the compatibility-critical per-image
-    operations remain exactly:
-      cv2.imread -> cv2.resize(fx=ratio, fy=ratio) -> cv2.imwrite(no params)
-
+    Image decoding/resizing/JPEG encoding uses OpenCV. Filesystem access is handled
+    through Unicode-safe paths so Japanese and Chinese folder/file names work on Windows.
     Relative subfolder structure below the selected input folder is preserved below
     the selected output folder so files with identical names do not overwrite each other.
     """
@@ -54,8 +77,7 @@ def resize_images_tool7(
         for p in glob.glob(os.path.join(input_folder, "**", "*.jpg"), recursive=True)
     ]
 
-    # If the user places the output folder inside the input tree, never feed existing
-    # output JPGs back into the same batch.
+    # If the output folder is inside the input tree, existing outputs are excluded.
     files: list[Path] = []
     for file in candidates:
         try:
@@ -78,10 +100,12 @@ def resize_images_tool7(
             destination = output_root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
 
-            # Keep the same OpenCV load/resize/save calls as tool_7_resize_image(1).py.
-            image = cv2.imread(str(file))
+            image = _imread_unicode(file)
+            if image is None or image.size == 0:
+                raise ValueError(tr(lang, "read_fail", path=file))
+
             resize_image = cv2.resize(image, (0, 0), fx=ratio, fy=ratio)
-            if not cv2.imwrite(str(destination), resize_image):
+            if not _imwrite_jpeg_unicode(destination, resize_image):
                 raise ValueError(tr(lang, "resize_write_failed", path=destination))
 
             return index, tr(lang, "resize_done", name=file.name), ("ok", str(destination))
