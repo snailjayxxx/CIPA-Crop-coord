@@ -29,9 +29,9 @@ def test_full_range_contains_all_frames():
     assert frame_bounds(video) == (0, 300)
 
 
-def test_export_uses_original_video_name_and_original_frame_index(monkeypatch, tmp_path):
+def test_export_preserves_unicode_video_name_and_original_frame_index(monkeypatch, tmp_path):
     frames = [np.full((2, 3, 3), value, dtype=np.uint8) for value in range(8)]
-    writes = []
+    encoded_values = []
 
     class FakeCapture:
         def __init__(self, _path):
@@ -50,30 +50,34 @@ def test_export_uses_original_video_name_and_original_frame_index(monkeypatch, t
         def release(self):
             pass
 
-    def fake_imwrite(path, frame, *args):
+    def fake_imencode(ext, frame, *args):
+        assert ext == ".jpg"
         assert args == ()
-        writes.append((Path(path).name, int(frame[0, 0, 0])))
-        return True
+        value = int(frame[0, 0, 0])
+        encoded_values.append(value)
+        return True, np.array([0xFF, 0xD8, value, 0xFF, 0xD9], dtype=np.uint8)
 
     monkeypatch.setattr("cipa_crop_coord.video_tool12.cv2.VideoCapture", FakeCapture)
-    monkeypatch.setattr("cipa_crop_coord.video_tool12.cv2.imwrite", fake_imwrite)
+    monkeypatch.setattr("cipa_crop_coord.video_tool12.cv2.imencode", fake_imencode)
 
+    output = tmp_path / "追加確認" / "frame_image"
     video = VideoRange(
-        path="C:/data/C2241-GIRI.MP4",
+        path="C:/data/小坂さんと岡田さんー緒確認_静止判別OFF_C0006.MP4",
         fps=2.0,
         frame_count=8,
         duration=4.0,
         start=1.0,
         end=3.0,
     )
-    summary = export_video_frames_tool12([video], str(tmp_path))
+    summary = export_video_frames_tool12([video], str(output))
 
-    assert [name for name, _ in writes] == [
-        "C2241-GIRI.MP4_00003.jpg",
-        "C2241-GIRI.MP4_00004.jpg",
-        "C2241-GIRI.MP4_00005.jpg",
-        "C2241-GIRI.MP4_00006.jpg",
+    expected_names = [
+        "小坂さんと岡田さんー緒確認_静止判別OFF_C0006.MP4_00003.jpg",
+        "小坂さんと岡田さんー緒確認_静止判別OFF_C0006.MP4_00004.jpg",
+        "小坂さんと岡田さんー緒確認_静止判別OFF_C0006.MP4_00005.jpg",
+        "小坂さんと岡田さんー緒確認_静止判別OFF_C0006.MP4_00006.jpg",
     ]
-    assert [value for _, value in writes] == [2, 3, 4, 5]
+    assert sorted(path.name for path in output.glob("*.jpg")) == sorted(expected_names)
+    assert encoded_values == [2, 3, 4, 5]
     assert summary.succeeded == 4
     assert summary.failed == 0
