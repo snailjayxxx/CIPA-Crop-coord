@@ -18,6 +18,12 @@ def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
+def _write_jpeg_unicode(path: Path, image) -> None:
+    ok, encoded = cv2.imencode(".jpg", image)
+    assert ok
+    path.write_bytes(encoded.tobytes())
+
+
 def test_all_three_languages_have_identical_keys() -> None:
     assert set(TEXT["zh"]) == set(TEXT["ja"]) == set(TEXT["en"])
     assert tr("en", "tab4") == "④ Image compression"
@@ -69,13 +75,41 @@ def test_resize_output_bytes_match_direct_tool7_pipeline(tmp_path: Path) -> None
     assert summary.output_path == str(output_root)
     assert output.exists()
 
-    # Reference implementation: exactly the same three calls used by tool_7_resize_image(1).py.
     reference_image = cv2.imread(str(source))
     reference_resize = cv2.resize(reference_image, (0, 0), fx=0.25, fy=0.25)
     reference = tmp_path / "reference.jpg"
     assert cv2.imwrite(str(reference), reference_resize)
 
     assert output.read_bytes() == reference.read_bytes()
+
+
+def test_resize_supports_japanese_input_output_paths(tmp_path: Path) -> None:
+    source_root = tmp_path / "追加確認" / "frame_image"
+    source_root.mkdir(parents=True)
+    output_root = tmp_path / "追加確認" / "resize_image"
+
+    image = np.zeros((120, 200, 3), dtype=np.uint8)
+    image[:, :, 1] = 180
+    source = source_root / "鏡筒004541098212_静止判別OFF_C0004.MP4_00222.jpg"
+    _write_jpeg_unicode(source, image)
+
+    summary = resize_images_tool7(
+        str(source_root),
+        str(output_root),
+        ratio=0.25,
+        workers=2,
+    )
+
+    output = output_root / source.name
+    assert summary.total == 1
+    assert summary.succeeded == 1
+    assert summary.failed == 0
+    assert output.exists()
+
+    data = np.fromfile(str(output), dtype=np.uint8)
+    decoded = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    assert decoded is not None
+    assert decoded.shape[:2] == (30, 50)
 
 
 def test_resize_recurses_jpg_only_preserves_name_and_relative_folder(tmp_path: Path) -> None:
