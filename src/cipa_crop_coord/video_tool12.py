@@ -112,6 +112,24 @@ def _coerce_video_range(item) -> VideoRange:
     raise TypeError(f"Unsupported video range: {type(item)!r}")
 
 
+def _write_jpeg_unicode(destination: Path, frame) -> bool:
+    """Save JPEG with OpenCV's default JPEG encoder but Unicode-safe filesystem I/O.
+
+    cv2.imwrite() on Windows can fail when the destination path contains Japanese/
+    Chinese characters. cv2.imencode('.jpg', frame) uses the same OpenCV JPEG encoder
+    and the same default parameters as cv2.imwrite without params; Python then writes
+    the encoded bytes to the Unicode path.
+    """
+    ok, encoded = cv2.imencode(".jpg", frame)
+    if not ok:
+        return False
+    try:
+        destination.write_bytes(encoded.tobytes())
+        return True
+    except OSError:
+        return False
+
+
 def export_video_frames_tool12(
     videos: Iterable[VideoRange | dict],
     output_folder: str,
@@ -126,8 +144,11 @@ def export_video_frames_tool12(
     Compatibility-critical behavior is intentionally preserved:
       * cv2.VideoCapture reads the source frames.
       * every selected source frame is saved without resizing/conversion.
-      * cv2.imwrite is called without JPEG parameters (OpenCV default JPEG settings).
+      * OpenCV's JPEG encoder is used without JPEG parameters (default settings).
       * file name is `<original video filename>_<original 1-based frame>.jpg`.
+
+    The only save-path adaptation is Unicode-safe filesystem output on Windows so
+    Japanese/Chinese names remain unchanged instead of causing cv2.imwrite to fail.
 
     For pixel/result fidelity, decoding still proceeds sequentially from frame 1, just as
     the source Tool 12 does. Frames before the selected start are decoded but not saved.
@@ -176,8 +197,8 @@ def export_video_frames_tool12(
                     filename = f"{Path(video.path).name}_{str(frame_number).zfill(5)}.jpg"
                     destination = output / filename
 
-                    # Keep Tool 12's save call semantics: no resize and no JPEG parameters.
-                    if cv2.imwrite(str(destination), frame):
+                    # Keep Tool 12 image/encoding semantics, but make Japanese paths safe.
+                    if _write_jpeg_unicode(destination, frame):
                         summary.succeeded += 1
                         exported_this_video += 1
                     else:
