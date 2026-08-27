@@ -6,12 +6,19 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QLabel,
+    QMainWindow,
+    QMessageBox,
     QRadioButton,
+    QSizePolicy,
     QTabWidget,
+    QToolBar,
     QVBoxLayout,
+    QWidget,
 )
 
 from .coord_export import (
@@ -21,6 +28,7 @@ from .coord_export import (
     export_coords_python,
 )
 from .locales import tr
+from .resize_tool7 import DEFAULT_RESIZE_RATIO, resize_images_tool7
 from . import ui
 
 
@@ -29,29 +37,28 @@ TEXT = {
         "template": "特征模板图片：",
         "mode_group": "坐标记录模式",
         "absolute": "绝对特征点坐标",
-        "absolute_note": "每张图片直接记录识别到的特征点中心 x / y 像素坐标，不减去任何基准坐标。",
         "relative_previous": "相对上一张坐标",
-        "relative_previous_note": "同一文件夹内第一张记录为 (0, 0)；之后每张 = 当前特征点中心坐标 − 上一张特征点中心坐标。进入新的子文件夹后重新从 (0, 0) 开始。",
         "relative_first": "相对第一张坐标",
-        "relative_first_note": "同一文件夹内第一张记录为 (0, 0)；之后每张 = 当前特征点中心坐标 − 第一张特征点中心坐标。这个模式对应来源 Python 的 calc_center_point() 处理方式。",
-        "algorithm": "三种模式共用完全相同的特征点识别：彩色图片直接执行 cv2.matchTemplate(..., TM_CCOEFF_NORMED) → cv2.minMaxLoc 取得最大相似位置 → 记录模板框中心。三种模式只改变坐标导出时的后处理方式。",
     },
     "ja": {
         "template": "特徴テンプレート画像：",
         "mode_group": "座標記録モード",
         "absolute": "特徴点の絶対座標",
-        "absolute_note": "各画像で検出した特徴点中心の x / y ピクセル座標をそのまま記録し、基準座標を差し引きません。",
         "relative_previous": "1つ前の画像に対する相対座標",
-        "relative_previous_note": "同一フォルダー内の1枚目は (0, 0)。2枚目以降は「現在の特徴点中心 − 1つ前の画像の特徴点中心」を記録します。別のサブフォルダーに移ると (0, 0) から再開します。",
         "relative_first": "1枚目の画像に対する相対座標",
-        "relative_first_note": "同一フォルダー内の1枚目は (0, 0)。2枚目以降は「現在の特徴点中心 − 1枚目の特徴点中心」を記録します。このモードは元 Python の calc_center_point() と同じ後処理です。",
-        "algorithm": "3つのモードはすべて同じ特徴点検出方法を使用します。カラー画像のまま cv2.matchTemplate(..., TM_CCOEFF_NORMED) → cv2.minMaxLoc の最大一致位置 → テンプレート枠中心を記録します。違いは座標出力時の後処理だけです。",
+    },
+    "en": {
+        "template": "Feature template image:",
+        "mode_group": "Coordinate mode",
+        "absolute": "Absolute feature-point coordinates",
+        "relative_previous": "Relative to previous image",
+        "relative_first": "Relative to first image",
     },
 }
 
 
 def txt(lang: str, key: str) -> str:
-    return TEXT["ja" if lang == "ja" else "zh"][key]
+    return TEXT[lang if lang in TEXT else "zh"][key]
 
 
 class CoordTab(ui.BatchTab):
@@ -79,28 +86,12 @@ class CoordTab(ui.BatchTab):
         group.addButton(self.relative_previous)
         group.addButton(self.relative_first)
 
-        absolute_note = QLabel(txt(lang, "absolute_note"))
-        absolute_note.setWordWrap(True)
-        previous_note = QLabel(txt(lang, "relative_previous_note"))
-        previous_note.setWordWrap(True)
-        first_note = QLabel(txt(lang, "relative_first_note"))
-        first_note.setWordWrap(True)
-
         mode_layout.addWidget(self.absolute)
-        mode_layout.addWidget(absolute_note)
-        mode_layout.addSpacing(6)
         mode_layout.addWidget(self.relative_previous)
-        mode_layout.addWidget(previous_note)
-        mode_layout.addSpacing(6)
         mode_layout.addWidget(self.relative_first)
-        mode_layout.addWidget(first_note)
-
-        algorithm = QLabel(txt(lang, "algorithm"))
-        algorithm.setWordWrap(True)
 
         self.content.addWidget(paths)
         self.content.addWidget(modes)
-        self.content.addWidget(algorithm)
         self.footer()
         self.run.clicked.connect(self.go)
 
@@ -138,21 +129,129 @@ class CoordTab(ui.BatchTab):
         )
 
 
+class ResizeTab(ui.BatchTab):
+    def __init__(self, lang):
+        super().__init__(lang)
+
+        paths = QGroupBox(tr(lang, "paths"))
+        path_form = QFormLayout(paths)
+        self.input = ui.PathChooser(lang, "folder")
+        path_form.addRow(tr(lang, "input"), self.input)
+
+        settings = QGroupBox(tr(lang, "resize_group"))
+        form = QFormLayout(settings)
+        self.ratio = ui.manual_number(QDoubleSpinBox())
+        self.ratio.setRange(0.001, 10.0)
+        self.ratio.setDecimals(4)
+        self.ratio.setSingleStep(0.05)
+        self.ratio.setValue(DEFAULT_RESIZE_RATIO)
+        self.ratio.setMinimumWidth(140)
+        form.addRow(tr(lang, "resize_ratio"), self.ratio)
+
+        ratio_note = QLabel(tr(lang, "resize_ratio_note"))
+        ratio_note.setWordWrap(True)
+        source_note = QLabel(tr(lang, "resize_source_note"))
+        source_note.setWordWrap(True)
+        output_note = QLabel(tr(lang, "resize_output_note"))
+        output_note.setWordWrap(True)
+        form.addRow("", ratio_note)
+        form.addRow("", source_note)
+        form.addRow("", output_note)
+
+        self.debug.setVisible(False)
+        self.content.addWidget(paths)
+        self.content.addWidget(settings)
+        self.footer()
+        self.run.clicked.connect(self.go)
+
+    def go(self):
+        if not ui.path_check(
+            self,
+            self.lang,
+            [(tr(self.lang, "input"), self.input.text())],
+        ):
+            return
+        self.start(
+            resize_images_tool7,
+            {
+                "input_folder": self.input.text(),
+                "ratio": self.ratio.value(),
+                **self.common(),
+            },
+        )
+
+
 class MainWindow(ui.MainWindow):
+    def __init__(self):
+        QMainWindow.__init__(self)
+        self.lang = "zh"
+        self.setWindowTitle("CIPA Crop & Coord")
+        self.resize(1180, 860)
+        self.setMinimumSize(940, 700)
+
+        toolbar = QToolBar()
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+        self.lang_label = QLabel()
+        toolbar.addWidget(self.lang_label)
+        self.combo = QComboBox()
+        self.combo.addItem("中文", "zh")
+        self.combo.addItem("日本語", "ja")
+        self.combo.addItem("English", "en")
+        toolbar.addWidget(self.combo)
+        self.combo.currentIndexChanged.connect(self.switch)
+        self.build()
+
+    def task_tabs(self):
+        return tuple(
+            tab for tab in (
+                getattr(self, "a", None),
+                getattr(self, "b", None),
+                getattr(self, "c", None),
+                getattr(self, "d", None),
+            ) if tab is not None
+        )
+
     def build(self):
         old = self.centralWidget()
         self.tabs = QTabWidget()
         self.a = ui.MatchTab(self.lang)
         self.b = ui.CenterTab(self.lang)
         self.c = CoordTab(self.lang)
+        self.d = ResizeTab(self.lang)
         self.tabs.addTab(self.a, tr(self.lang, "tab1"))
         self.tabs.addTab(self.b, tr(self.lang, "tab2"))
         self.tabs.addTab(self.c, tr(self.lang, "tab3"))
+        self.tabs.addTab(self.d, tr(self.lang, "tab4"))
         self.setCentralWidget(self.tabs)
         if old:
             old.deleteLater()
         self.lang_label.setText(tr(self.lang, "language"))
         self.statusBar().showMessage(tr(self.lang, "status"))
+
+    def switch(self, index):
+        new = self.combo.itemData(index)
+        if new == self.lang:
+            return
+        if any(tab.running() for tab in self.task_tabs()):
+            QMessageBox.information(self, tr(self.lang, "running"), tr(self.lang, "running_msg"))
+            self.combo.blockSignals(True)
+            restore = self.combo.findData(self.lang)
+            self.combo.setCurrentIndex(max(0, restore))
+            self.combo.blockSignals(False)
+            return
+        self.lang = new
+        self.build()
+
+    def closeEvent(self, event):
+        if any(tab.running() for tab in self.task_tabs()):
+            QMessageBox.information(self, tr(self.lang, "running"), tr(self.lang, "running_msg"))
+            event.ignore()
+        else:
+            event.accept()
 
 
 def main():
