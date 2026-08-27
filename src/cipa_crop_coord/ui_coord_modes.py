@@ -14,7 +14,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .coord_export import MODE_ABSOLUTE, MODE_RELATIVE_PREVIOUS, export_coords_python
+from .coord_export import (
+    MODE_ABSOLUTE,
+    MODE_RELATIVE_FIRST,
+    MODE_RELATIVE_PREVIOUS,
+    export_coords_python,
+)
 from .locales import tr
 from . import ui
 
@@ -23,20 +28,24 @@ TEXT = {
     "zh": {
         "template": "特征模板图片：",
         "mode_group": "坐标记录模式",
-        "relative": "相对移动坐标（相对上一张）",
-        "relative_note": "同一文件夹内第一张记录为 (0, 0)；之后每张 = 当前特征点中心坐标 − 上一张特征点中心坐标。进入新的子文件夹后重新从 (0, 0) 开始。",
         "absolute": "绝对特征点坐标",
-        "absolute_note": "每张图片直接记录识别到的特征点中心 x / y 像素坐标，不减去上一张或第一张的坐标。",
-        "algorithm": "坐标识别完全采用来源 Python 的方法：彩色图片直接执行 cv2.matchTemplate(..., TM_CCOEFF_NORMED) → cv2.minMaxLoc 取得最大相似位置 → 记录模板框中心。坐标导出不使用灰度化、二值化、边缘屏蔽、搜索遮蔽、粗匹配/二次精修或最低相似度阈值。",
+        "absolute_note": "每张图片直接记录识别到的特征点中心 x / y 像素坐标，不减去任何基准坐标。",
+        "relative_previous": "相对上一张坐标",
+        "relative_previous_note": "同一文件夹内第一张记录为 (0, 0)；之后每张 = 当前特征点中心坐标 − 上一张特征点中心坐标。进入新的子文件夹后重新从 (0, 0) 开始。",
+        "relative_first": "相对第一张坐标",
+        "relative_first_note": "同一文件夹内第一张记录为 (0, 0)；之后每张 = 当前特征点中心坐标 − 第一张特征点中心坐标。这个模式对应来源 Python 的 calc_center_point() 处理方式。",
+        "algorithm": "三种模式共用完全相同的特征点识别：彩色图片直接执行 cv2.matchTemplate(..., TM_CCOEFF_NORMED) → cv2.minMaxLoc 取得最大相似位置 → 记录模板框中心。三种模式只改变坐标导出时的后处理方式。",
     },
     "ja": {
         "template": "特徴テンプレート画像：",
         "mode_group": "座標記録モード",
-        "relative": "相対移動座標（1つ前の画像との差分）",
-        "relative_note": "同一フォルダー内の1枚目は (0, 0) として記録し、2枚目以降は「現在の特徴点中心 − 1つ前の画像の特徴点中心」を記録します。別のサブフォルダーに移ると (0, 0) から再開します。",
         "absolute": "特徴点の絶対座標",
-        "absolute_note": "各画像で検出した特徴点中心の x / y ピクセル座標をそのまま記録し、前画像や1枚目の座標は差し引きません。",
-        "algorithm": "座標検出は元 Python と同じ方法を使用します。カラー画像のまま cv2.matchTemplate(..., TM_CCOEFF_NORMED) → cv2.minMaxLoc の最大一致位置 → テンプレート枠中心を記録します。グレースケール化、二値化、周辺除外、検索範囲除外、粗探索/再探索、最低類似度しきい値は座標出力では使用しません。",
+        "absolute_note": "各画像で検出した特徴点中心の x / y ピクセル座標をそのまま記録し、基準座標を差し引きません。",
+        "relative_previous": "1つ前の画像に対する相対座標",
+        "relative_previous_note": "同一フォルダー内の1枚目は (0, 0)。2枚目以降は「現在の特徴点中心 − 1つ前の画像の特徴点中心」を記録します。別のサブフォルダーに移ると (0, 0) から再開します。",
+        "relative_first": "1枚目の画像に対する相対座標",
+        "relative_first_note": "同一フォルダー内の1枚目は (0, 0)。2枚目以降は「現在の特徴点中心 − 1枚目の特徴点中心」を記録します。このモードは元 Python の calc_center_point() と同じ後処理です。",
+        "algorithm": "3つのモードはすべて同じ特徴点検出方法を使用します。カラー画像のまま cv2.matchTemplate(..., TM_CCOEFF_NORMED) → cv2.minMaxLoc の最大一致位置 → テンプレート枠中心を記録します。違いは座標出力時の後処理だけです。",
     },
 }
 
@@ -60,22 +69,31 @@ class CoordTab(ui.BatchTab):
 
         modes = QGroupBox(txt(lang, "mode_group"))
         mode_layout = QVBoxLayout(modes)
-        self.relative = QRadioButton(txt(lang, "relative"))
         self.absolute = QRadioButton(txt(lang, "absolute"))
-        self.relative.setChecked(True)
-        group = QButtonGroup(self)
-        group.addButton(self.relative)
-        group.addButton(self.absolute)
+        self.relative_previous = QRadioButton(txt(lang, "relative_previous"))
+        self.relative_first = QRadioButton(txt(lang, "relative_first"))
+        self.relative_previous.setChecked(True)
 
-        relative_note = QLabel(txt(lang, "relative_note"))
-        relative_note.setWordWrap(True)
+        group = QButtonGroup(self)
+        group.addButton(self.absolute)
+        group.addButton(self.relative_previous)
+        group.addButton(self.relative_first)
+
         absolute_note = QLabel(txt(lang, "absolute_note"))
         absolute_note.setWordWrap(True)
-        mode_layout.addWidget(self.relative)
-        mode_layout.addWidget(relative_note)
-        mode_layout.addSpacing(6)
+        previous_note = QLabel(txt(lang, "relative_previous_note"))
+        previous_note.setWordWrap(True)
+        first_note = QLabel(txt(lang, "relative_first_note"))
+        first_note.setWordWrap(True)
+
         mode_layout.addWidget(self.absolute)
         mode_layout.addWidget(absolute_note)
+        mode_layout.addSpacing(6)
+        mode_layout.addWidget(self.relative_previous)
+        mode_layout.addWidget(previous_note)
+        mode_layout.addSpacing(6)
+        mode_layout.addWidget(self.relative_first)
+        mode_layout.addWidget(first_note)
 
         algorithm = QLabel(txt(lang, "algorithm"))
         algorithm.setWordWrap(True)
@@ -85,6 +103,13 @@ class CoordTab(ui.BatchTab):
         self.content.addWidget(algorithm)
         self.footer()
         self.run.clicked.connect(self.go)
+
+    def selected_mode(self) -> str:
+        if self.absolute.isChecked():
+            return MODE_ABSOLUTE
+        if self.relative_first.isChecked():
+            return MODE_RELATIVE_FIRST
+        return MODE_RELATIVE_PREVIOUS
 
     def go(self):
         if not ui.path_check(
@@ -101,14 +126,13 @@ class CoordTab(ui.BatchTab):
         path = self.csv.text()
         path = path if Path(path).suffix.lower() == ".csv" else path + ".csv"
         self.csv.edit.setText(path)
-        mode = MODE_RELATIVE_PREVIOUS if self.relative.isChecked() else MODE_ABSOLUTE
         self.start(
             export_coords_python,
             {
                 "sample": self.sample.text(),
                 "input_folder": self.input.text(),
                 "csv_path": path,
-                "mode": mode,
+                "mode": self.selected_mode(),
                 **self.common(),
             },
         )
