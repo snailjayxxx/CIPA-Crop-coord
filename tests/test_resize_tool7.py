@@ -39,16 +39,18 @@ def test_coordinate_page_has_no_algorithm_explanation() -> None:
     assert "cv2.matchTemplate" not in text
 
 
-def test_resize_page_defaults_match_tool7() -> None:
+def test_resize_page_defaults_match_tool7_and_has_output_picker() -> None:
     _app()
     tab = ResizeTab("en")
     assert tab.ratio.value() == DEFAULT_RESIZE_RATIO == 0.25
+    assert tab.output.text() == ""
 
 
 def test_resize_output_bytes_match_direct_tool7_pipeline(tmp_path: Path) -> None:
     source_root = tmp_path / "input"
     nested = source_root / "nested"
     nested.mkdir(parents=True)
+    output_root = tmp_path / "output"
 
     rng = np.random.default_rng(20260827)
     image = rng.integers(0, 256, (181, 263, 3), dtype=np.uint8)
@@ -56,9 +58,15 @@ def test_resize_output_bytes_match_direct_tool7_pipeline(tmp_path: Path) -> None
     source = nested / "sample.jpg"
     assert cv2.imwrite(str(source), image)
 
-    summary = resize_images_tool7(str(source_root), ratio=0.25, workers=2)
-    output = nested / "resize_images" / "sample.jpg"
+    summary = resize_images_tool7(
+        str(source_root),
+        str(output_root),
+        ratio=0.25,
+        workers=2,
+    )
+    output = output_root / "nested" / "sample.jpg"
     assert summary.succeeded == 1
+    assert summary.output_path == str(output_root)
     assert output.exists()
 
     # Reference implementation: exactly the same three calls used by tool_7_resize_image(1).py.
@@ -70,15 +78,31 @@ def test_resize_output_bytes_match_direct_tool7_pipeline(tmp_path: Path) -> None
     assert output.read_bytes() == reference.read_bytes()
 
 
-def test_resize_recurses_jpg_only_and_preserves_name(tmp_path: Path) -> None:
+def test_resize_recurses_jpg_only_preserves_name_and_relative_folder(tmp_path: Path) -> None:
     root = tmp_path / "input"
     sub = root / "A"
     sub.mkdir(parents=True)
+    output_root = tmp_path / "chosen-output"
     image = np.full((80, 120, 3), 127, dtype=np.uint8)
     assert cv2.imwrite(str(sub / "a.jpg"), image)
     assert cv2.imwrite(str(sub / "b.png"), image)
 
-    summary = resize_images_tool7(str(root), ratio=0.5, workers=1)
+    summary = resize_images_tool7(str(root), str(output_root), ratio=0.5, workers=1)
     assert summary.total == 1
-    assert (sub / "resize_images" / "a.jpg").exists()
-    assert not (sub / "resize_images" / "b.png").exists()
+    assert (output_root / "A" / "a.jpg").exists()
+    assert not (output_root / "A" / "b.png").exists()
+
+
+def test_resize_output_inside_input_is_not_reprocessed(tmp_path: Path) -> None:
+    root = tmp_path / "input"
+    root.mkdir()
+    output_root = root / "my-output"
+    output_root.mkdir()
+    image = np.full((40, 60, 3), 100, dtype=np.uint8)
+    assert cv2.imwrite(str(root / "source.jpg"), image)
+    assert cv2.imwrite(str(output_root / "old.jpg"), image)
+
+    summary = resize_images_tool7(str(root), str(output_root), ratio=0.5, workers=1)
+    assert summary.total == 1
+    assert (output_root / "source.jpg").exists()
+    assert not (output_root / "my-output" / "old.jpg").exists()
