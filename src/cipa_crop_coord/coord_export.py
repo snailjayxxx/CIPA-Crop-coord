@@ -27,13 +27,7 @@ class PythonMatchResult:
 
 
 def python_match_center(image: np.ndarray, template: np.ndarray) -> PythonMatchResult:
-    """Reproduce tool_9_calc_chart_center.py's feature-point detection path.
-
-    The reference script performs full-color TM_CCOEFF_NORMED template matching,
-    takes cv2.minMaxLoc(...).max_loc, then records the center of the matched
-    template rectangle. No grayscale conversion, thresholding, edge masking,
-    search masking, coarse matching, refinement, or similarity cutoff is used.
-    """
+    """Reproduce tool_9_calc_chart_center.py's feature-point detection path."""
     if image is None or template is None:
         raise ValueError("图片或模板为空")
     if image.ndim != template.ndim:
@@ -46,8 +40,6 @@ def python_match_center(image: np.ndarray, template: np.ndarray) -> PythonMatchR
     if image_h < template_h or image_w < template_w:
         raise ValueError("被遍历图片尺寸小于模板图片")
 
-    # The source Python explicitly resizes each target image with resize_ratio=1.
-    # Keep that step so the coordinate-export path mirrors it as closely as possible.
     resize_image = cv2.resize(image, (0, 0), fx=1.0, fy=1.0)
     result = cv2.matchTemplate(resize_image, template, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(result)
@@ -79,8 +71,12 @@ def _text(lang: str, key: str, **kwargs) -> str:
             "record": "記録済み（最大類似度 {score:.3f}）：{name}",
             "fail": "失敗：{name} — {error}",
         },
+        "en": {
+            "record": "Recorded (maximum similarity {score:.3f}): {name}",
+            "fail": "Failed: {name} — {error}",
+        },
     }
-    language = "ja" if lang == "ja" else "zh"
+    language = lang if lang in texts else "zh"
     return texts[language][key].format(**kwargs)
 
 
@@ -91,6 +87,12 @@ def _header(lang: str, mode: str) -> tuple[str, str, str]:
         if mode == MODE_RELATIVE_FIRST:
             return ("ファイル名", "Δx（1枚目比）", "Δy（1枚目比）")
         return ("ファイル名", "x座標", "y座標")
+    if lang == "en":
+        if mode == MODE_RELATIVE_PREVIOUS:
+            return ("Filename", "Δx (vs previous)", "Δy (vs previous)")
+        if mode == MODE_RELATIVE_FIRST:
+            return ("Filename", "Δx (vs first)", "Δy (vs first)")
+        return ("Filename", "X coordinate", "Y coordinate")
     if mode == MODE_RELATIVE_PREVIOUS:
         return ("文件名", "Δx（相对上一张）", "Δy（相对上一张）")
     if mode == MODE_RELATIVE_FIRST:
