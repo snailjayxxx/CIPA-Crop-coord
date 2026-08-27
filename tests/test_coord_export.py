@@ -8,6 +8,7 @@ import numpy as np
 
 from cipa_crop_coord.coord_export import (
     MODE_ABSOLUTE,
+    MODE_RELATIVE_FIRST,
     MODE_RELATIVE_PREVIOUS,
     export_coords_python,
     python_match_center,
@@ -86,7 +87,7 @@ def test_export_relative_to_previous_and_reset_each_folder(tmp_path):
     _write(group_a / "003.png", _target(template, 19, 32))
     _write(group_b / "001.png", _target(template, 70, 50))
 
-    csv_path = tmp_path / "relative.csv"
+    csv_path = tmp_path / "relative_previous.csv"
     summary = export_coords_python(
         str(sample),
         str(input_folder),
@@ -103,4 +104,41 @@ def test_export_relative_to_previous_and_reset_each_folder(tmp_path):
         ["A/002.png", "4", "-5"],
         ["A/003.png", "-5", "7"],
         ["B/001.png", "0", "0"],
+    ]
+
+
+def test_export_relative_to_first_matches_reference_postprocess(tmp_path):
+    template = _template()
+    sample = tmp_path / "template.png"
+    _write(sample, template)
+    input_folder = tmp_path / "input"
+    group_a = input_folder / "A"
+    group_b = input_folder / "B"
+    group_a.mkdir(parents=True)
+    group_b.mkdir(parents=True)
+
+    _write(group_a / "001.png", _target(template, 20, 30))
+    _write(group_a / "002.png", _target(template, 24, 25))
+    _write(group_a / "003.png", _target(template, 19, 32))
+    _write(group_b / "001.png", _target(template, 70, 50))
+    _write(group_b / "002.png", _target(template, 67, 58))
+
+    csv_path = tmp_path / "relative_first.csv"
+    summary = export_coords_python(
+        str(sample),
+        str(input_folder),
+        str(csv_path),
+        mode=MODE_RELATIVE_FIRST,
+        workers=2,
+    )
+
+    assert summary.succeeded == 5
+    rows = list(csv.reader(csv_path.open(encoding="utf-8-sig")))
+    assert rows == [
+        ["文件名", "Δx（相对第一张）", "Δy（相对第一张）"],
+        ["A/001.png", "0", "0"],
+        ["A/002.png", "4", "-5"],
+        ["A/003.png", "-1", "2"],
+        ["B/001.png", "0", "0"],
+        ["B/002.png", "-3", "8"],
     ]
