@@ -39,6 +39,7 @@ TEXT = {
         "absolute": "绝对特征点坐标",
         "relative_previous": "相对上一张坐标",
         "relative_first": "相对第一张坐标",
+        "resize_output": "压缩图片保存文件夹：",
     },
     "ja": {
         "template": "特徴テンプレート画像：",
@@ -46,6 +47,7 @@ TEXT = {
         "absolute": "特徴点の絶対座標",
         "relative_previous": "1つ前の画像に対する相対座標",
         "relative_first": "1枚目の画像に対する相対座標",
+        "resize_output": "圧縮画像の保存先：",
     },
     "en": {
         "template": "Feature template image:",
@@ -53,6 +55,7 @@ TEXT = {
         "absolute": "Absolute feature-point coordinates",
         "relative_previous": "Relative to previous image",
         "relative_first": "Relative to first image",
+        "resize_output": "Compressed image output folder:",
     },
 }
 
@@ -136,7 +139,9 @@ class ResizeTab(ui.BatchTab):
         paths = QGroupBox(tr(lang, "paths"))
         path_form = QFormLayout(paths)
         self.input = ui.PathChooser(lang, "folder")
+        self.output = ui.PathChooser(lang, "folder")
         path_form.addRow(tr(lang, "input"), self.input)
+        path_form.addRow(txt(lang, "resize_output"), self.output)
 
         settings = QGroupBox(tr(lang, "resize_group"))
         form = QFormLayout(settings)
@@ -152,11 +157,8 @@ class ResizeTab(ui.BatchTab):
         ratio_note.setWordWrap(True)
         source_note = QLabel(tr(lang, "resize_source_note"))
         source_note.setWordWrap(True)
-        output_note = QLabel(tr(lang, "resize_output_note"))
-        output_note.setWordWrap(True)
         form.addRow("", ratio_note)
         form.addRow("", source_note)
-        form.addRow("", output_note)
 
         self.debug.setVisible(False)
         self.content.addWidget(paths)
@@ -168,13 +170,17 @@ class ResizeTab(ui.BatchTab):
         if not ui.path_check(
             self,
             self.lang,
-            [(tr(self.lang, "input"), self.input.text())],
+            [
+                (tr(self.lang, "input"), self.input.text()),
+                (txt(self.lang, "resize_output"), self.output.text()),
+            ],
         ):
             return
         self.start(
             resize_images_tool7,
             {
                 "input_folder": self.input.text(),
+                "output_folder": self.output.text(),
                 "ratio": self.ratio.value(),
                 **self.common(),
             },
