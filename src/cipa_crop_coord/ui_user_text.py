@@ -8,6 +8,7 @@ from . import ui
 from . import ui_coord_modes as coord_ui
 from . import ui_video_tool12 as video_ui
 from .locales import tr
+from .ui_image_to_video import ImageToVideoTab, txt as image_video_txt
 
 
 TEXT = {
@@ -57,16 +58,21 @@ class MainWindow(video_ui.MainWindow):
         self.c = coord_ui.CoordTab(self.lang)
         self.d = ResizeTab(self.lang)
         self.e = VideoTab(self.lang)
+        self.f = ImageToVideoTab(self.lang)
         self.tabs.addTab(self.a, tr(self.lang, "tab1"))
         self.tabs.addTab(self.b, tr(self.lang, "tab2"))
         self.tabs.addTab(self.c, tr(self.lang, "tab3"))
         self.tabs.addTab(self.d, tr(self.lang, "tab4"))
         self.tabs.addTab(self.e, video_ui.txt(self.lang, "tab"))
+        self.tabs.addTab(self.f, image_video_txt(self.lang, "tab"))
         self.setCentralWidget(self.tabs)
         if old:
             old.deleteLater()
         self.lang_label.setText(tr(self.lang, "language"))
         self.statusBar().showMessage(tr(self.lang, "status"))
+
+    def task_tabs(self):
+        return super().task_tabs() + (self.f,)
 
 
 def main():
