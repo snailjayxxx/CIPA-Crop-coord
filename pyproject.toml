@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cipa-crop-coord"
-version = "1.1.0"
+version = "6.1.0"
 description = "批量图片定位、裁切与坐标导出桌面工具"
 readme = "README.md"
 requires-python = ">=3.10"

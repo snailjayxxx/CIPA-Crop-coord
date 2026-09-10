@@ -2,12 +2,24 @@ name: Build Windows EXE
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a Release after a successful build (main only)
+        type: boolean
+        default: false
   pull_request:
     branches:
       - main
   push:
+    branches:
+      - main
+    paths:
+      - "release-notes/**"
     tags:
       - "v*"
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -35,3 +47,52 @@ jobs:
           name: CIPA-Crop-Coord-Windows
           path: dist/CIPA-Crop-Coord.exe
           if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: build
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: publish-release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: CIPA-Crop-Coord-Windows
+          path: dist
+
+      - name: Publish EXE and checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a stable semantic version in pyproject.toml."
+            exit 1
+          fi
+          tag="v$version"
+          notes="release-notes/$tag.md"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "The tag must match the application version."
+            exit 1
+          fi
+          test -s "$notes"
+          test -s dist/CIPA-Crop-Coord.exe
+          (cd dist && sha256sum CIPA-Crop-Coord.exe > SHA256SUMS.txt)
+          gh release create "$tag" \
+            dist/CIPA-Crop-Coord.exe dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "CIPA Crop & Coord $tag" \
+            --notes-file "$notes" \
+            --latest

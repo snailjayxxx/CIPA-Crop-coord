@@ -11,6 +11,8 @@
 
 最终发布的 `CIPA-Crop-Coord.exe` 已包含 Python 和运行库，客户电脑不需要安装 Python。
 
+正式版下载：[GitHub Releases](https://github.com/snailjayxxx/CIPA-Crop-coord/releases/latest)。下载 `CIPA-Crop-Coord.exe` 后即可运行。
+
 ## 图片生成视频（含 v6.1 补丁）
 
 - 每秒图片数默认为 10，可自行设置；视频时长为总帧数除以每秒图片数。
@@ -83,6 +85,12 @@
 2. 也可在 **Actions → Build Windows EXE → Run workflow** 手动构建。
 3. 完成后下载 `CIPA-Crop-Coord-Windows` artifact，里面是单文件 EXE。
 4. 推送 `v1.1.0` 这类 tag 也会自动构建。
+
+### 正式发布
+
+将 `pyproject.toml` 和包内的 `__version__` 更新为相同版本，并添加 `release-notes/v版本号.md`。合并发布说明到 `main` 后，流程会运行 Windows 测试、构建 EXE，再发布对应版本的 Release，附上 EXE 和 SHA-256 校验文件。
+
+也可在 `main` 手动运行构建并勾选 `publish`，或推送与应用版本一致的 `v` 标签。PR 构建不会发布 Release；未勾选 `publish` 的手动构建只生成 Actions 附件。
 
 ### 在 Windows 本机构建
 
