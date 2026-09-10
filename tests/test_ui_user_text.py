@@ -25,8 +25,9 @@ def test_user_facing_pages_do_not_show_tool_numbers() -> None:
     window.close()
 
 
-def test_main_window_has_five_tabs() -> None:
+def test_main_window_has_six_tabs() -> None:
     _app()
     window = MainWindow()
-    assert window.tabs.count() == 5
+    assert window.tabs.count() == 6
+    assert len(window.task_tabs()) == 6
     window.close()
