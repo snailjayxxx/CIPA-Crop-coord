@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
+
+import pytest
+
+from cipa_crop_coord.blur_pipeline import (
+    BlurPipeline, DEFAULT_CALC_WORKERS, MAX_CALC_WORKERS, MIN_CALC_IMAGES,
+    FAILURE_TEXT,
+)
+
+
+def _backend(recorder, *, started=None, resume=None, fail_name=None):
+    def calculate(images, target, decoder, *, workers, progress, cancel, language):
+        assert 1 <= workers <= 4
+        assert decoder == Path("test_decoder.exe")
+        recorder.append((len(images), workers, [item.name for item in images]))
+        if started:
+            started.set()
+        if resume:
+            assert resume.wait(5), "calculation did not overlap the crop producer"
+        lines = []
+        failures = []
+        for number, path in enumerate(images, 1):
+            if fail_name == path.name:
+                lines.append(f"{path.name} {FAILURE_TEXT}")
+                failures.append((path.name, "fake measurement failure"))
+            else:
+                lines.append(f"{path.name} 1.000000 2.000000 3.000000 4.000000")
+            if progress:
+                progress(number, len(images), path, path.name != fail_name, "test")
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return SimpleNamespace(
+            cancelled=False, successful=len(images) - len(failures),
+            failures=tuple(failures), completed=len(images),
+        )
+    return calculate, Path("test_decoder.exe")
+
+
+def test_disabled_or_too_few_crops_never_start(tmp_path):
+    calls = []
+    target = tmp_path / "not_written.txt"
+    pipeline = BlurPipeline(target, workers=2, expected=50, backend=_backend(calls))
+    pipeline.start()
+    for index in range(MIN_CALC_IMAGES - 1):
+        pipeline.submit(index, tmp_path / f"{index:03}.jpg")
+    result = pipeline.finish()
+    assert result.below_minimum is True
+    assert result.attempted == 0
+    assert result.queued == 15
+    assert calls == []
+    assert not target.exists()
+
+
+def test_calculation_starts_at_16_and_overlaps_more_crops(tmp_path):
+    calls, started, resume = [], Event(), Event()
+    target = tmp_path / "result.txt"
+    pipeline = BlurPipeline(
+        target, workers=4, expected=35,
+        backend=_backend(calls, started=started, resume=resume),
+    )
+    pipeline.start()
+    # Mimic out-of-order arrivals from the crop worker pool.
+    for index in reversed(range(16)):
+        pipeline.submit(index, tmp_path / f"{index:03}.jpg")
+    assert started.wait(5), "the 16th saved crop must start calculation"
+    for index in reversed(range(16, 35)):
+        pipeline.submit(index, tmp_path / f"{index:03}.jpg")
+    resume.set()
+    result = pipeline.finish()
+    assert result.queued == result.attempted == result.successful == 35
+    assert result.failed == 0 and result.error == ""
+    assert [count for count, _, _ in calls] == [16, 4, 4, 4, 4, 3]
+    assert all(workers == 4 for _, workers, _ in calls)
+    lines = target.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 35
+    assert [line.split()[0] for line in lines] == [
+        f"{index:03}.jpg" for index in range(35)
+    ]
+
+
+def test_calculation_failure_keeps_filename_and_error_sidecar(tmp_path):
+    target = tmp_path / "result.txt"
+    pipeline = BlurPipeline(
+        target, workers=DEFAULT_CALC_WORKERS,
+        backend=_backend([], fail_name="007.jpg"),
+    )
+    pipeline.start()
+    for index in range(16):
+        pipeline.submit(index, tmp_path / f"{index:03}.jpg")
+    result = pipeline.finish()
+    assert result.failed == 1 and result.successful == 15
+    assert "007.jpg " + FAILURE_TEXT in target.read_text(encoding="utf-8")
+    assert Path(result.errors_path).is_file()
+    assert "007.jpg" in Path(result.errors_path).read_text(encoding="utf-8")
+
+
+def test_calculation_worker_cap_is_independent_from_crop_workers(tmp_path):
+    assert MAX_CALC_WORKERS == 4
+    for value in (0, 5):
+        with pytest.raises(ValueError, match="1～4"):
+            BlurPipeline(tmp_path / "invalid.txt", workers=value, backend=_backend([]))
