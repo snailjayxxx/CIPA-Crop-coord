@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image
 from .locales import tr
+from .blur_pipeline import BlurPipeline, DEFAULT_CALC_WORKERS
 
 EXT={".jpg",".jpeg",".png",".bmp",".tif",".tiff",".webp"}
 DEFAULT_SEARCH_MASK=100/6
@@ -41,6 +42,9 @@ class Match:
 @dataclass
 class Summary:
     total:int=0; succeeded:int=0; failed:int=0; skipped:int=0; output_path:str=""; debug_path:str=""
+    blur_requested:bool=False; blur_output:str=""; blur_queued:int=0
+    blur_attempted:int=0; blur_succeeded:int=0; blur_failed:int=0
+    blur_skipped_minimum:bool=False; blur_error:str=""; blur_errors_path:str=""
 
 
 def images(folder,exclude:Iterable=(),lang="zh"):
@@ -160,8 +164,18 @@ def _count(summary,results):
         else:summary.failed+=1
 
 
-def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=95,progress=None,cancel=None,lang="zh",workers=DEFAULT_WORKERS,debug=False):
+def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=95,progress=None,cancel=None,lang="zh",workers=DEFAULT_WORKERS,debug=False,blur_output=None,blur_workers=DEFAULT_CALC_WORKERS,blur_progress=None):
     dbg=Path(output_folder)/"_debug_match_crop"; fs=images(input_folder,[output_folder,dbg],lang); prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
+    # Validation and backend resolution happen before launching any crop task.
+    # A separate worker thread consumes successfully saved crops once 16 exist.
+    blur = BlurPipeline(
+        blur_output, workers=blur_workers, expected=len(fs),
+        progress=blur_progress, cancel=cancel, lang=lang,
+    ) if blur_output else None
+    if blur:
+        s.blur_requested = True
+        s.blur_output = str(blur.output)
+        blur.start()
     if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
     def one(i,p):
         try:
@@ -169,9 +183,26 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
             if debug:
                 b=threshold(g); n=stem(i+1,p); debug_write(dbg/f"{n}_binary.jpg",b); masked=b.copy(); r=m.search; masked[:r.y,:]=0; masked[r.y+r.height:,:]=0; masked[r.y:r.y+r.height,:r.x]=0; masked[r.y:r.y+r.height,r.x+r.width:]=0; debug_write(dbg/f"{n}_masked.jpg",masked)
             if m.score<settings.threshold:return i,tr(lang,"skip",score=m.score,name=p.name),("skip",None)
-            r=m.crop; write(alloc.get(output_name(p)),im[r.y:r.y+r.height,r.x:r.x+r.width],quality,lang); return i,tr(lang,"ok_score",score=m.score,name=p.name),("ok",None)
+            r=m.crop; saved=write(alloc.get(output_name(p)),im[r.y:r.y+r.height,r.x:r.x+r.width],quality,lang)
+            if blur:
+                blur.submit(i, saved)
+            return i,tr(lang,"ok_score",score=m.score,name=p.name),("ok",None)
         except Exception as e:return i,tr(lang,"fail",name=p.name,error=e),("fail",None)
-    rs=parallel(fs,one,workers,progress,cancel); _count(s,rs); return s
+    try:
+        rs = parallel(fs,one,workers,progress,cancel)
+    finally:
+        # The crop task does not finish until all queued calculations finish.
+        blur_result = blur.finish() if blur else None
+    _count(s,rs)
+    if blur_result:
+        s.blur_queued = blur_result.queued
+        s.blur_attempted = blur_result.attempted
+        s.blur_succeeded = blur_result.successful
+        s.blur_failed = blur_result.failed
+        s.blur_skipped_minimum = blur_result.below_minimum
+        s.blur_error = blur_result.error
+        s.blur_errors_path = blur_result.errors_path
+    return s
 
 
 def parse_ratio(v,lang):
