@@ -61,6 +61,7 @@ from .engine import (
     export_coords,
     match_crop,
 )
+from .blur_pipeline import DEFAULT_CALC_WORKERS, MAX_CALC_WORKERS
 from .locales import tr
 
 
@@ -620,6 +621,7 @@ class SearchMask(QWidget):
 
 class Worker(QObject):
     progress = Signal(int, int, str)
+    calculation = Signal(int, int, str)
     finished = Signal(object)
     failed = Signal(str)
 
@@ -638,6 +640,11 @@ class Worker(QObject):
                     **self.kwargs,
                     progress=lambda current, total, message: self.progress.emit(current, total, message),
                     cancel=self.stop.is_set,
+                    **(
+                        {"blur_progress": lambda current, total, message:
+                             self.calculation.emit(current, total, message)}
+                        if self.kwargs.get("blur_output") else {}
+                    ),
                 )
             )
         except Cancelled:
@@ -701,6 +708,8 @@ class BatchTab(QWidget):
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self.on_progress)
+        if hasattr(self, "on_blur_progress"):
+            worker.calculation.connect(self.on_blur_progress)
         worker.finished.connect(self.on_done)
         worker.failed.connect(self.on_fail)
         worker.finished.connect(thread.quit)
@@ -728,6 +737,20 @@ class BatchTab(QWidget):
             tr(self.lang, "finished", ok=summary.succeeded, skip=summary.skipped, fail=summary.failed)
         )
         debug = tr(self.lang, "debug_line", path=summary.debug_path) if summary.debug_path else ""
+        blur_detail = ""
+        if getattr(summary, "blur_requested", False):
+            if summary.blur_skipped_minimum:
+                blur_detail = tr(self.lang, "blur_wait_min")
+            elif summary.blur_error:
+                blur_detail = tr(self.lang, "blur_error_line", error=summary.blur_error)
+            else:
+                blur_detail = tr(
+                    self.lang, "blur_done_line", ok=summary.blur_succeeded,
+                    fail=summary.blur_failed, path=summary.blur_output,
+                )
+            self.log.appendPlainText(blur_detail.strip())
+            if summary.blur_errors_path:
+                self.log.appendPlainText(summary.blur_errors_path)
         QMessageBox.information(
             self,
             tr(self.lang, "done"),
@@ -740,7 +763,7 @@ class BatchTab(QWidget):
                 fail=summary.failed,
                 path=summary.output_path,
                 debug=debug,
-            ),
+            ) + ("\n\n" + blur_detail.strip() if blur_detail else ""),
         )
 
     def on_fail(self, message):
@@ -811,6 +834,23 @@ class MatchTab(BatchTab):
         form.addRow(tr(lang, "sample"), self.sample)
         form.addRow(tr(lang, "input"), self.input)
         form.addRow(tr(lang, "output"), self.output)
+        self.blur_enabled = QCheckBox(tr(lang, "blur_enable"))
+        self.blur_enabled.setToolTip(tr(lang, "blur_tip"))
+        self.blur_file = PathChooser(lang, "save", "txt_filter")
+        form.addRow(self.blur_enabled, self.blur_file)
+        self.blur_workers = manual_number(QSpinBox())
+        self.blur_workers.setRange(1, MAX_CALC_WORKERS)
+        self.blur_workers.setValue(DEFAULT_CALC_WORKERS)
+        self.blur_workers.setToolTip(tr(lang, "blur_threads_tip"))
+        blur_jobs = QHBoxLayout()
+        blur_jobs.addWidget(QLabel(tr(lang, "blur_calc_threads")))
+        blur_jobs.addWidget(self.blur_workers)
+        blur_jobs.addStretch()
+        form.addRow("", blur_jobs)
+        self._suggested_blur_path = ""
+        self.output.edit.textChanged.connect(self.suggest_blur_path)
+        self.blur_enabled.toggled.connect(self.toggle_blur)
+        self.toggle_blur(False)
 
         self.opts = MatchOpts(lang, self.sample, self.input)
 
@@ -823,11 +863,37 @@ class MatchTab(BatchTab):
         self.content.addWidget(paths)
         self.content.addWidget(self.opts)
         self.content.addWidget(output)
+        self.blur_progress_bar = QProgressBar()
+        self.blur_progress_bar.setRange(0, 1)
+        self.blur_progress_bar.setVisible(False)
+        self.content.addWidget(self.blur_progress_bar)
         self.footer()
         self.run.clicked.connect(self.go)
 
+    def suggest_blur_path(self):
+        folder = self.output.text()
+        suggested = str(Path(folder) / "FindsBlur_Result.txt") if folder else ""
+        previous = self._suggested_blur_path
+        if suggested and (not self.blur_file.text() or self.blur_file.text() == previous):
+            self.blur_file.edit.setText(suggested)
+        self._suggested_blur_path = suggested
+
+    def toggle_blur(self, enabled):
+        self.blur_file.setEnabled(enabled)
+        self.blur_workers.setEnabled(enabled)
+        if enabled:
+            self.suggest_blur_path()
+
+    def on_blur_progress(self, current, total, message):
+        self.blur_progress_bar.setRange(0, max(1, total))
+        self.blur_progress_bar.setValue(current)
+        self.blur_progress_bar.setFormat(
+            tr(self.lang, "blur_progress", done=current, total=total)
+        )
+        self.log.appendPlainText(message)
+
     def go(self):
-        if path_check(
+        if not path_check(
             self,
             self.lang,
             [
@@ -836,17 +902,43 @@ class MatchTab(BatchTab):
                 (tr(self.lang, "output"), self.output.text()),
             ],
         ):
-            self.start(
-                match_crop,
-                {
-                    "sample": self.sample.text(),
-                    "input_folder": self.input.text(),
-                    "output_folder": self.output.text(),
-                    "settings": self.opts.value(),
-                    "quality": self.q.value(),
-                    **self.common(),
-                },
-            )
+            return
+        blur_output = None
+        if self.blur_enabled.isChecked():
+            blur_output = self.blur_file.text()
+            if not path_check(self, self.lang, [(tr(self.lang, "blur_output"), blur_output)]):
+                return
+            if Path(blur_output).suffix == "":
+                blur_output += ".txt"
+                self.blur_file.edit.setText(blur_output)
+            if Path(blur_output).suffix.lower() != ".txt":
+                QMessageBox.warning(self, tr(self.lang, "missing"), tr(self.lang, "blur_txt_only"))
+                return
+            if Path(blur_output).exists():
+                answer = QMessageBox.question(
+                    self, tr(self.lang, "blur_confirm_title"),
+                    tr(self.lang, "blur_confirm_body", path=blur_output),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+        self.blur_progress_bar.setVisible(blur_output is not None)
+        self.blur_progress_bar.setRange(0, 1)
+        self.blur_progress_bar.setValue(0)
+        self.start(
+            match_crop,
+            {
+                "sample": self.sample.text(),
+                "input_folder": self.input.text(),
+                "output_folder": self.output.text(),
+                "settings": self.opts.value(),
+                "quality": self.q.value(),
+                "blur_output": blur_output,
+                "blur_workers": self.blur_workers.value(),
+                **self.common(),
+            },
+        )
 
 
 class CenterTab(BatchTab):
