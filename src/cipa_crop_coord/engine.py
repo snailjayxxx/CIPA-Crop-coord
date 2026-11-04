@@ -172,11 +172,11 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
         blur_output, workers=blur_workers, expected=len(fs),
         progress=blur_progress, cancel=cancel, lang=lang,
     ) if blur_output else None
+    if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
     if blur:
         s.blur_requested = True
         s.blur_output = str(blur.output)
         blur.start()
-    if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
     def one(i,p):
         try:
             im=read(p,False,lang); g=cv2.cvtColor(im,cv2.COLOR_BGR2GRAY); m=locate(g,prep,settings.search_mask,settings.coarse,lang)
