@@ -834,7 +834,7 @@ class MatchTab(BatchTab):
         form.addRow(tr(lang, "sample"), self.sample)
         form.addRow(tr(lang, "input"), self.input)
         form.addRow(tr(lang, "output"), self.output)
-        self.blur_enabled = QCheckBox(tr(lang, "blur_enable"))
+        self.blur_enabled = QCheckBox(tr(lang, "blur_output"))
         self.blur_enabled.setToolTip(tr(lang, "blur_tip"))
         self.blur_file = PathChooser(lang, "save", "txt_filter")
         form.addRow(self.blur_enabled, self.blur_file)
