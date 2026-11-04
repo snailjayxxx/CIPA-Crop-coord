@@ -44,7 +44,7 @@ class Summary:
     total:int=0; succeeded:int=0; failed:int=0; skipped:int=0; output_path:str=""; debug_path:str=""
     blur_requested:bool=False; blur_output:str=""; blur_queued:int=0
     blur_attempted:int=0; blur_succeeded:int=0; blur_failed:int=0
-    blur_skipped_minimum:bool=False; blur_error:str=""; blur_errors_path:str=""
+    blur_skipped_minimum:bool=False; blur_cancelled:bool=False; blur_error:str=""; blur_errors_path:str=""
 
 
 def images(folder,exclude:Iterable=(),lang="zh"):
@@ -200,6 +200,7 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
         s.blur_succeeded = blur_result.successful
         s.blur_failed = blur_result.failed
         s.blur_skipped_minimum = blur_result.below_minimum
+        s.blur_cancelled = blur_result.cancelled
         s.blur_error = blur_result.error
         s.blur_errors_path = blur_result.errors_path
     return s
