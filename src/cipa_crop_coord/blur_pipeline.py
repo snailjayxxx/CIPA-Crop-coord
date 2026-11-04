@@ -193,7 +193,9 @@ class BlurPipeline:
                         if not self._started:
                             self._below_minimum = True
                             self._emit(0, tr(self.lang, "blur_under_min", count=MIN_CALC_IMAGES))
-                        elif pending and not (self.cancel and self.cancel()):
+                        elif self.cancel and self.cancel():
+                            self._cancelled = True
+                        elif pending:
                             self._process(pending, Path(folder))
                         break
                     if self._cancelled or self._error:
@@ -212,6 +214,11 @@ class BlurPipeline:
             self._error = f"{type(exc).__name__}: {exc}"
             self._emit(self._attempted, tr(self.lang, "blur_error_line", error=self._error))
         finally:
+            if self._started and not self._error:
+                # Final progress uses the number of actually saved crops, not
+                # the number of source images that might have failed cropping.
+                self.expected = self._queued
+                self._emit(self._attempted, tr(self.lang, "blur_queue_complete"))
             if self._started or self._error:
                 if self._failures or self._error:
                     errors = [f"{filename}: {reason}" for filename, reason in self._failures]
