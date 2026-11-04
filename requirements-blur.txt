@@ -1,0 +1,4 @@
+# Only required for local integrated FindsBlur builds.
+# Keep the default cropping dependencies and CI unchanged.
+scipy>=1.12
+numba>=0.59
