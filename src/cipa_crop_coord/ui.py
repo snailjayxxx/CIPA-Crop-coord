@@ -743,6 +743,11 @@ class BatchTab(QWidget):
                 blur_detail = tr(self.lang, "blur_wait_min")
             elif summary.blur_error:
                 blur_detail = tr(self.lang, "blur_error_line", error=summary.blur_error)
+            elif summary.blur_cancelled:
+                blur_detail = tr(
+                    self.lang, "blur_cancel_line", done=summary.blur_attempted,
+                    total=summary.blur_queued, path=summary.blur_output,
+                )
             else:
                 blur_detail = tr(
                     self.lang, "blur_done_line", ok=summary.blur_succeeded,
@@ -751,7 +756,11 @@ class BatchTab(QWidget):
             self.log.appendPlainText(blur_detail.strip())
             if summary.blur_errors_path:
                 self.log.appendPlainText(summary.blur_errors_path)
-        QMessageBox.information(
+        show_result = (
+            QMessageBox.warning if getattr(summary, "blur_cancelled", False)
+            else QMessageBox.information
+        )
+        show_result(
             self,
             tr(self.lang, "done"),
             tr(
