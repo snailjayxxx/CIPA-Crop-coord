@@ -14,6 +14,8 @@ from pathlib import Path
 from queue import Queue
 from typing import Callable
 
+from .locales import tr
+
 MIN_CALC_IMAGES = 16
 MAX_CALC_WORKERS = 4
 DEFAULT_CALC_WORKERS = 2
@@ -43,12 +45,14 @@ def load_calculator():
     """
     env_root = os.environ.get("CIPA_CALC_ROOT", "").strip()
     roots = []
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        # The executable's bundled sources take precedence over any developer
+        # environment variable retained on the machine at runtime.
+        roots.append(Path(frozen_root))
     if env_root:
         roots.append(Path(env_root).expanduser().resolve())
     else:
-        frozen_root = getattr(sys, "_MEIPASS", None)
-        if frozen_root:
-            roots.append(Path(frozen_root))
         project = Path(__file__).resolve().parents[2]
         roots.extend((project.parent / "CIPA-Calc", project / "CIPA-Calc"))
     root = next(
@@ -125,7 +129,9 @@ class BlurPipeline:
         self.progress = progress
         self.cancel = cancel
         self.lang = lang
-        self.calculate, self.decoder = backend if backend is not None else load_calculator()
+        # Resolve the optional private backend only once the 16-image gate opens.
+        # Missing computation dependencies must not prevent cropping.
+        self.calculate, self.decoder = backend if backend is not None else (None, None)
         self._queue = Queue()
         self._thread = threading.Thread(
             target=self._consume, name="findsblur-consumer", daemon=False
@@ -186,7 +192,7 @@ class BlurPipeline:
                     if item is _SENTINEL:
                         if not self._started:
                             self._below_minimum = True
-                            self._emit(0, f"裁切成功不足 {MIN_CALC_IMAGES} 张，未启动计算")
+                            self._emit(0, tr(self.lang, "blur_under_min", count=MIN_CALC_IMAGES))
                         elif pending and not (self.cancel and self.cancel()):
                             self._process(pending, Path(folder))
                         break
@@ -204,7 +210,7 @@ class BlurPipeline:
                             break
         except Exception as exc:
             self._error = f"{type(exc).__name__}: {exc}"
-            self._emit(self._attempted, "抖动量计算失败：" + self._error)
+            self._emit(self._attempted, tr(self.lang, "blur_error_line", error=self._error))
         finally:
             if self._started or self._error:
                 if self._failures or self._error:
@@ -217,19 +223,23 @@ class BlurPipeline:
                         self._errors_path = str(errors_path)
                     except OSError:
                         pass
-                else:
+                elif self._lines:
                     self.output.with_name(
                         self.output.stem + "_errors.txt"
                     ).unlink(missing_ok=True)
 
     def _process(self, batch: list[tuple[int, Path]], workdir: Path):
         batch = sorted(batch, key=lambda pair: pair[0])
+        if self.calculate is None:
+            self.calculate, self.decoder = load_calculator()
         temp_txt = workdir / f"batch_{self._attempted:06d}.txt"
         initial_done = self._attempted
 
         def on_progress(done, total, filename, ok, details):
-            status = "成功" if ok else "失败"
-            self._emit(initial_done + done, f"抖动量计算 {status}：{filename.name}")
+            self._emit(
+                initial_done + done,
+                tr(self.lang, "blur_progress_ok" if ok else "blur_progress_fail", name=filename.name),
+            )
 
         result = self.calculate(
             [path for _, path in batch],
@@ -262,4 +272,4 @@ class BlurPipeline:
         if self._lines:
             output_lines = [self._lines[index] for index in sorted(self._lines)]
             _atomic_write(self.output, "\n".join(output_lines) + "\n")
-        self._emit(self._attempted, "抖动量计算批次完成")
+        self._emit(self._attempted, tr(self.lang, "blur_batch_complete"))
