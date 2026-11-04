@@ -137,3 +137,29 @@ python launcher.py
 python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+
+## 开发中：① 相似区域裁切 → 可选 FindsBlur 抖动量计算
+
+**状态：独立开发分支，尚未合并 main；不是正式版。独立的 CIPA-Calc 仓库及程序不做任何修改。**
+
+- 在「文件位置」底部增加「抖动量计算结果输出」（日本語：ブレ量計算結果出力），复选框默认关闭。关闭时完全沿用现有裁切流程。
+- 勾选后可填写/选择 TXT 输出路径（默认建议为裁切输出文件夹中的 `FindsBlur_Result.txt`），已有文件覆盖前弹出确认。
+- 裁切并行线程与抖动量计算并行线程分别设置；计算线程 **1～4，默认 2**，不会改变裁切的并行数。
+- **成功保存 16 张裁切图片**之后才启动计算，后续裁切与计算可并行进行；计算队列处理完全部成功裁切的图片后才宣告整个任务完成。最终成功裁切不足 16 张时，不创建新的 TXT。
+- 计算输出按照源图遍历顺序排列（不是裁切线程完成顺序），每张实际尝试计算的图片保留一行「裁切后文件名 + 四个数值」；失败保留日文失败行，并另写 `_errors.txt`。裁切图片本身不受计算失败影响。
+- **仅使用本地已还原的 FindsBlur 计算核心和 IJG 8c 解码器**。计算核心在独立的私有 `snailjayxxx/CIPA-Calc` 仓库中，本公开仓库只包含调用桥接代码，**不包含**原版商业 EXE、私有计算源码、个人照片或计算结果。
+
+### Windows 本地集成构建
+
+开发机器必须已有 `CIPA-Calc` 私有仓库的本地检出以及本机编译的 `_work\\IJG8c\\bin\\ijg8c_rgb_probe.exe`，使用 Python 3.11，在本仓库根目录执行：
+
+```bat
+set "CIPA_CALC_ROOT=E:\\MyCIPA\\CIPA-Calc"
+rem 可选：set "FINDSBLUR_IJG8C_EXE=C:\\path\\ijg8c_rgb_probe.exe"
+build_windows_with_blur.bat
+```
+
+构建脚本运行测试并将计算模块及解码器仅打入本机生成的 `dist\\CIPA-Crop-Coord.exe`，不更改、不上传 CIPA-Calc 的任何文件。常规 `build_windows.bat` 和公开 GitHub Actions 构建仍是**裁切功能构建**，不包含私有计算核心；因此，使用这类 EXE 勾选计算选项会提示计算核心不可用。
+
+**验收边界：** 目前完成的是工作流整合代码，不代表 FindsBlur 还原算法已与官方 EXE 全面数值一致。必须在 Windows 本机使用官方样本进行 15/16/17 张门槛测试、取消、JPEG 保存质量 100%、中日英语言切换、独立线程 1～4、113 张及 110 张官方 TXT 对比，以及集成 EXE 运行验证。通过前不合并 main、不发布正式版。
