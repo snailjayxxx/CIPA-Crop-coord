@@ -82,13 +82,40 @@ QLineEdit, QPlainTextEdit {
     border-radius: 5px;
     padding: 5px;
     background: white;
+    color: #202936;
+    selection-background-color: #2d7be8;
+    selection-color: white;
 }
+/* A QSpinBox contains a QLineEdit. Styling that embedded editor as a
+   standalone path editor can cover its text/editing area on Windows.
+   Reserve space for step buttons, and explicitly style the inner editor. */
 QSpinBox, QDoubleSpinBox {
     border: 1px solid #c9ced7;
     border-radius: 5px;
-    padding: 4px 6px;
+    padding: 2px 23px 2px 7px;
     min-height: 26px;
-    background: white;
+    background-color: #ffffff;
+    color: #202936;
+    selection-background-color: #2d7be8;
+    selection-color: white;
+}
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid #2d7be8;
+}
+QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    min-height: 0;
+    background: transparent;
+    color: #202936;
+    selection-background-color: #2d7be8;
+    selection-color: white;
+}
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+    width: 18px;
 }
 QPushButton {
     border: 1px solid #b8bec8;
@@ -119,7 +146,20 @@ QTabBar::tab:selected { background: white; font-weight: 600; }
 
 
 def manual_number(spin):
-    spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    """Keep every numeric setting visible and directly editable on Windows.
+
+    The former NoButtons + global QLineEdit style combination could leave an
+    empty-looking spin box with no reachable input editor. Users can now type
+    the exact value or click the step arrows; no defaults/ranges are changed.
+    """
+    spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+    spin.setReadOnly(False)
+    spin.setKeyboardTracking(False)
+    spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    spin.setAccelerated(True)
+    editor = spin.findChild(QLineEdit)
+    if editor is not None:
+        editor.setReadOnly(False)
     return spin
 
 
@@ -671,6 +711,7 @@ class BatchTab(QWidget):
         self.workers = manual_number(QSpinBox())
         self.workers.setRange(1, max(2, min(8, os.cpu_count() or 2)))
         self.workers.setValue(min(DEFAULT_WORKERS, self.workers.maximum()))
+        self.workers.setMinimumWidth(95)
         self.workers.setToolTip(tr(lang, "threads_tip"))
         self.run = QPushButton(tr(lang, "start"))
         self.run.setObjectName("primary")
@@ -854,6 +895,7 @@ class MatchTab(BatchTab):
         self.blur_workers = manual_number(QSpinBox())
         self.blur_workers.setRange(1, MAX_CALC_WORKERS)
         self.blur_workers.setValue(DEFAULT_CALC_WORKERS)
+        self.blur_workers.setMinimumWidth(95)
         self.blur_workers.setToolTip(tr(lang, "blur_threads_tip"))
         blur_jobs = QHBoxLayout()
         blur_jobs.addWidget(QLabel(tr(lang, "blur_calc_threads")))
