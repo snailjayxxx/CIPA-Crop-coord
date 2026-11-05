@@ -58,8 +58,11 @@ jobs:
           FINDSBLUR_IJG8C_EXE: ${{ github.workspace }}\vendor\findsblur_v131\_work\IJG8c\bin\ijg8c_rgb_probe.exe
         run: |
           python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'Python regression tests failed; block integrated EXE release.' }
           python scripts/check_calc_source_v131.py
+          if ($LASTEXITCODE -ne 0) { throw 'FindsBlur source verification failed.' }
           python -c "import sys; sys.path.insert(0, 'vendor/findsblur_v131'); import standalone_gui.core; from phase12.whole_image_until_flags import analyze_to_flags; print('Vendored algorithm imports: PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Vendored calculation core import failed.' }
 
       - name: Build all-in-one Windows EXE
         shell: pwsh
@@ -68,7 +71,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m PyInstaller --noconfirm --clean CIPA-Crop-Coord.spec
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller integrated EXE build failed.' }
           python scripts/verify_integrated_bundle.py dist/CIPA-Crop-Coord.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Integrated EXE archive is incomplete.' }
 
       - name: Smoke test real bundled decoder and CalcDebug (no original images)
         shell: pwsh
