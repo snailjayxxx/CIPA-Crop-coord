@@ -176,3 +176,37 @@ def test_calcdebug_path_rejects_existing_file(tmp_path):
             tmp_path / "out.txt", backend=_backend([]),
             calcdebug_root=raw_file,
         )
+
+
+
+def test_calcdebug_warnings_are_kept_even_if_numeric_txt_succeeds(tmp_path):
+    def calculate(images, target, decoder, *, workers, progress, cancel,
+                  language, calcdebug_root=None):
+        assert calcdebug_root is not None
+        target.write_text(
+            "".join(f"{p.name} 1.000000 2.000000 3.000000 4.000000\n" for p in images),
+            encoding="utf-8",
+        )
+        errors_path = target.with_name(target.stem + "_errors.txt")
+        errors_path.write_text("CalcDebug: synthetic PNG warning", encoding="utf-8")
+        return SimpleNamespace(
+            completed=len(images), successful=len(images), failures=(),
+            cancelled=False, errors_path=errors_path,
+            calcdebug_path=Path(calcdebug_root),
+        )
+
+    pipeline = BlurPipeline(
+        tmp_path / "numeric.txt",
+        backend=(calculate, Path("test_decoder.exe")),
+        calcdebug_root=tmp_path / "CalcDebug",
+    )
+    pipeline.start()
+    for i in range(16):
+        pipeline.submit(i, tmp_path / f"{i:03d}.jpg")
+    result = pipeline.finish()
+    assert result.successful == 16 and result.failed == 0
+    assert Path(result.errors_path).is_file()
+    assert "synthetic PNG warning" in Path(result.errors_path).read_text(
+        encoding="utf-8"
+    )
+    assert len((tmp_path / "numeric.txt").read_text(encoding="utf-8").splitlines()) == 16
