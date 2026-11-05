@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QDoubleSpinBox,
     QFileDialog,
+    QLineEdit,
     QSpinBox,
 )
 
@@ -32,13 +33,18 @@ def test_quality_defaults_to_100_percent() -> None:
     assert widget.maximum() == 100
 
 
-def test_numeric_inputs_have_no_step_buttons() -> None:
+def test_numeric_inputs_show_step_buttons_and_accept_manual_entry() -> None:
     _app()
     integer = manual_number(QSpinBox())
     decimal = manual_number(QDoubleSpinBox())
-    expected = QAbstractSpinBox.ButtonSymbols.NoButtons
-    assert integer.buttonSymbols() == expected
-    assert decimal.buttonSymbols() == expected
+    expected = QAbstractSpinBox.ButtonSymbols.UpDownArrows
+    for widget in (integer, decimal):
+        assert widget.buttonSymbols() == expected
+        assert not widget.isReadOnly()
+        assert widget.keyboardTracking() is False
+        editor = widget.findChild(QLineEdit)
+        assert editor is not None
+        assert not editor.isReadOnly()
 
 
 def test_preferred_image_start_uses_selected_traversal_folder(tmp_path) -> None:

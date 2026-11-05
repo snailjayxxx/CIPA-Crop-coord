@@ -13,6 +13,8 @@
 
 正式版下载：[GitHub Releases](https://github.com/snailjayxxx/CIPA-Crop-coord/releases/latest)。下载 `CIPA-Crop-Coord.exe` 后即可运行。
 
+> **注意**：当前正式版 Release v6.1.0 仍是旧版裁切功能；包含 FindsBlur v1.3.1 的集成测试版在 [PR #7](https://github.com/snailjayxxx/CIPA-Crop-coord/pull/7) 和相应 Actions 构建中。待官方数值对照验证后，再合并与发布新版。
+
 ## 图片生成视频（含 v6.1 补丁）
 
 - 每秒图片数默认为 10，可自行设置；视频时长为总帧数除以每秒图片数。
@@ -83,7 +85,7 @@
 
 1. Pull Request 指向 `main` 时会自动执行测试与 Windows EXE 构建。
 2. 也可在 **Actions → Build Windows EXE → Run workflow** 手动构建。
-3. 完成后下载 `CIPA-Crop-Coord-Windows` artifact，里面是单文件 EXE。
+3. 完成后下载 `CIPA-Crop-Coord-Integrated-FindsBlur-v1.3.1` 附件，里面是包含裁切与抖动计算的单文件 EXE。
 4. 推送 `v1.1.0` 这类 tag 也会自动构建。
 
 ### 正式发布
@@ -137,3 +139,18 @@ python launcher.py
 python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+
+## 完整整合版（单一仓库，FindsBlur v1.3.1）
+
+> **开发分支 / Draft PR #7：尚未合并 main。** 此仓库现在自带 FindsBlur 还原计算源代码，后续下载不需要访问第二个私有 GitHub 仓库，也不需要离线合并两个 ZIP。
+
+- **源码位置**：`vendor/findsblur_v131/`，基线 `snailjayxxx/CIPA-Calc@09815ec8538b3410ba7c28adfc6a6bf6b6ba30d7`。独立计算仓库不改动；未包含原版商业 EXE、用户照片、RAW 或逆向证据文件。
+- **一个来源下载**：直接下载本仓库的整合分支 ZIP；编译后的集成 EXE 位于本仓库 **Actions → Build CIPA Crop + FindsBlur v1.3.1 (Integrated Windows EXE)** 的成功运行附件中。
+- **一体化构建**：Windows CI 使用仓库内 C 代码与 IJG 官方 v8c 源码编译解码器，安装依赖，并打包 **包含计算核心的单文件 EXE**。不需要克隆 CIPA-Calc，也不用登录第二个仓库。
+- **裁切触发计算**：默认不勾选、成功保存至少 16 张裁切图才启动；并行计算 1～4 与裁切线程分开设置，全部计算后完成。可选 CalcDebug 输出。
+- **本地构建**：若要在 Windows 本机手动打包，可运行 `build_windows_with_blur.bat`；需事先编译 IJG 8c 解码器，或直接使用本仓库 Actions 自动打包的 EXE。
+- **验收限制**：合成图/自动化检查只能证明执行链路可用。正式发布前仍需官方 EXE 的 110/113 张参考结果数值对照，未验证前不合并 main，不冒充官方一致。
+
+**下载源码分支 ZIP**：https://github.com/snailjayxxx/CIPA-Crop-coord/archive/refs/heads/feature/match-crop-findblur-pipeline-20261105.zip
+

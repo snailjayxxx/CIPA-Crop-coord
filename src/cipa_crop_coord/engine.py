@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image
 from .locales import tr
+from .blur_pipeline import BlurPipeline, DEFAULT_CALC_WORKERS, MIN_CALC_IMAGES
+from . import blur_pipeline as blur_runtime
 
 EXT={".jpg",".jpeg",".png",".bmp",".tif",".tiff",".webp"}
 DEFAULT_SEARCH_MASK=100/6
@@ -41,6 +43,9 @@ class Match:
 @dataclass
 class Summary:
     total:int=0; succeeded:int=0; failed:int=0; skipped:int=0; output_path:str=""; debug_path:str=""
+    blur_requested:bool=False; blur_output:str=""; blur_queued:int=0
+    blur_attempted:int=0; blur_succeeded:int=0; blur_failed:int=0
+    blur_skipped_minimum:bool=False; blur_cancelled:bool=False; blur_error:str=""; blur_errors_path:str=""; blur_calcdebug_path:str=""
 
 
 def images(folder,exclude:Iterable=(),lang="zh"):
@@ -160,18 +165,62 @@ def _count(summary,results):
         else:summary.failed+=1
 
 
-def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=95,progress=None,cancel=None,lang="zh",workers=DEFAULT_WORKERS,debug=False):
-    dbg=Path(output_folder)/"_debug_match_crop"; fs=images(input_folder,[output_folder,dbg],lang); prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
+def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=95,progress=None,cancel=None,lang="zh",workers=DEFAULT_WORKERS,debug=False,blur_output=None,blur_workers=DEFAULT_CALC_WORKERS,blur_progress=None,blur_calcdebug_root=None):
+    dbg=Path(output_folder)/"_debug_match_crop"
+    # The user may keep CalcDebug outputs under an input directory.
+    # Exclude those diagnostic PNGs on subsequent runs.
+    exclusions = [output_folder, dbg]
+    if blur_output and blur_calcdebug_root:
+        exclusions.append(blur_calcdebug_root)
+    fs=images(input_folder,exclusions,lang)
+    prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
+    # Do not spend minutes cropping 100+ photos before discovering that the
+    # requested FindsBlur backend cannot be loaded. Import/decoder preflight
+    # occurs BEFORE the first crop, while actual measurement still begins
+    # only after the 16th successfully saved photo. Short batches (<16)
+    # still crop normally without requiring the calculation runtime.
+    blur_backend = (
+        blur_runtime.load_calculator()
+        if blur_output and len(fs) >= MIN_CALC_IMAGES else None
+    )
+    blur = BlurPipeline(
+        blur_output, workers=blur_workers, expected=len(fs),
+        progress=blur_progress, cancel=cancel, lang=lang,
+        calcdebug_root=blur_calcdebug_root, backend=blur_backend,
+    ) if blur_output else None
     if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
+    if blur:
+        s.blur_requested = True
+        s.blur_output = str(blur.output)
+        blur.start()
     def one(i,p):
         try:
             im=read(p,False,lang); g=cv2.cvtColor(im,cv2.COLOR_BGR2GRAY); m=locate(g,prep,settings.search_mask,settings.coarse,lang)
             if debug:
                 b=threshold(g); n=stem(i+1,p); debug_write(dbg/f"{n}_binary.jpg",b); masked=b.copy(); r=m.search; masked[:r.y,:]=0; masked[r.y+r.height:,:]=0; masked[r.y:r.y+r.height,:r.x]=0; masked[r.y:r.y+r.height,r.x+r.width:]=0; debug_write(dbg/f"{n}_masked.jpg",masked)
             if m.score<settings.threshold:return i,tr(lang,"skip",score=m.score,name=p.name),("skip",None)
-            r=m.crop; write(alloc.get(output_name(p)),im[r.y:r.y+r.height,r.x:r.x+r.width],quality,lang); return i,tr(lang,"ok_score",score=m.score,name=p.name),("ok",None)
+            r=m.crop; saved=write(alloc.get(output_name(p)),im[r.y:r.y+r.height,r.x:r.x+r.width],quality,lang)
+            if blur:
+                blur.submit(i, saved)
+            return i,tr(lang,"ok_score",score=m.score,name=p.name),("ok",None)
         except Exception as e:return i,tr(lang,"fail",name=p.name,error=e),("fail",None)
-    rs=parallel(fs,one,workers,progress,cancel); _count(s,rs); return s
+    try:
+        rs = parallel(fs,one,workers,progress,cancel)
+    finally:
+        # The crop task does not finish until all queued calculations finish.
+        blur_result = blur.finish() if blur else None
+    _count(s,rs)
+    if blur_result:
+        s.blur_queued = blur_result.queued
+        s.blur_attempted = blur_result.attempted
+        s.blur_succeeded = blur_result.successful
+        s.blur_failed = blur_result.failed
+        s.blur_skipped_minimum = blur_result.below_minimum
+        s.blur_cancelled = blur_result.cancelled
+        s.blur_error = blur_result.error
+        s.blur_errors_path = blur_result.errors_path
+        s.blur_calcdebug_path = blur_result.calcdebug_path
+    return s
 
 
 def parse_ratio(v,lang):

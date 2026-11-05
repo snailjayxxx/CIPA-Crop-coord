@@ -61,6 +61,7 @@ from .engine import (
     export_coords,
     match_crop,
 )
+from .blur_pipeline import DEFAULT_CALC_WORKERS, MAX_CALC_WORKERS
 from .locales import tr
 
 
@@ -76,19 +77,21 @@ QGroupBox {
     background: white;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-QLineEdit, QPlainTextEdit {
+/* Apply rounded input styling only to standalone text fields.
+   The QLineEdit hidden inside each QSpinBox must use Qt's native painting:
+   applying generic QLineEdit/QSpinBox QSS to it made numerical text disappear
+   in the PySide6 Windows build. */
+QLineEdit#cipaTextInput, QPlainTextEdit {
     border: 1px solid #c9ced7;
     border-radius: 5px;
     padding: 5px;
-    background: white;
+    background-color: #ffffff;
+    color: #202936;
+    selection-background-color: #2d7be8;
+    selection-color: white;
 }
-QSpinBox, QDoubleSpinBox {
-    border: 1px solid #c9ced7;
-    border-radius: 5px;
-    padding: 4px 6px;
-    min-height: 26px;
-    background: white;
-}
+/* QSpinBox and QDoubleSpinBox deliberately have NO QSS rules; let the native
+   Windows/Qt style paint their editor and step arrows consistently. */
 QPushButton {
     border: 1px solid #b8bec8;
     border-radius: 5px;
@@ -118,7 +121,21 @@ QTabBar::tab:selected { background: white; font-weight: 600; }
 
 
 def manual_number(spin):
-    spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    """Keep every numeric setting visible and directly editable on Windows.
+
+    The former NoButtons + global QLineEdit style combination could leave an
+    empty-looking spin box with no reachable input editor. Users can now type
+    the exact value or click the step arrows; no defaults/ranges are changed.
+    """
+    spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+    spin.setReadOnly(False)
+    spin.setKeyboardTracking(False)
+    spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    spin.setAccelerated(True)
+    spin.setMinimumHeight(30)
+    editor = spin.findChild(QLineEdit)
+    if editor is not None:
+        editor.setReadOnly(False)
     return spin
 
 
@@ -139,6 +156,7 @@ class PathChooser(QWidget):
         self.mode = mode
         self.save_key = save_key
         self.edit = QLineEdit()
+        self.edit.setObjectName("cipaTextInput")
         button = QPushButton(tr(lang, "browse"))
         button.clicked.connect(self.browse)
         layout = QHBoxLayout(self)
@@ -620,6 +638,7 @@ class SearchMask(QWidget):
 
 class Worker(QObject):
     progress = Signal(int, int, str)
+    calculation = Signal(int, int, str)
     finished = Signal(object)
     failed = Signal(str)
 
@@ -638,6 +657,11 @@ class Worker(QObject):
                     **self.kwargs,
                     progress=lambda current, total, message: self.progress.emit(current, total, message),
                     cancel=self.stop.is_set,
+                    **(
+                        {"blur_progress": lambda current, total, message:
+                             self.calculation.emit(current, total, message)}
+                        if self.kwargs.get("blur_output") else {}
+                    ),
                 )
             )
         except Cancelled:
@@ -664,6 +688,7 @@ class BatchTab(QWidget):
         self.workers = manual_number(QSpinBox())
         self.workers.setRange(1, max(2, min(8, os.cpu_count() or 2)))
         self.workers.setValue(min(DEFAULT_WORKERS, self.workers.maximum()))
+        self.workers.setMinimumWidth(95)
         self.workers.setToolTip(tr(lang, "threads_tip"))
         self.run = QPushButton(tr(lang, "start"))
         self.run.setObjectName("primary")
@@ -701,6 +726,8 @@ class BatchTab(QWidget):
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self.on_progress)
+        if hasattr(self, "on_blur_progress"):
+            worker.calculation.connect(self.on_blur_progress)
         worker.finished.connect(self.on_done)
         worker.failed.connect(self.on_fail)
         worker.finished.connect(thread.quit)
@@ -728,7 +755,34 @@ class BatchTab(QWidget):
             tr(self.lang, "finished", ok=summary.succeeded, skip=summary.skipped, fail=summary.failed)
         )
         debug = tr(self.lang, "debug_line", path=summary.debug_path) if summary.debug_path else ""
-        QMessageBox.information(
+        blur_detail = ""
+        if getattr(summary, "blur_requested", False):
+            if summary.blur_skipped_minimum:
+                blur_detail = tr(self.lang, "blur_wait_min")
+            elif summary.blur_error:
+                blur_detail = tr(self.lang, "blur_error_line", error=summary.blur_error)
+            elif summary.blur_cancelled:
+                blur_detail = tr(
+                    self.lang, "blur_cancel_line", done=summary.blur_attempted,
+                    total=summary.blur_queued, path=summary.blur_output,
+                )
+            else:
+                blur_detail = tr(
+                    self.lang, "blur_done_line", ok=summary.blur_succeeded,
+                    fail=summary.blur_failed, path=summary.blur_output,
+                )
+            self.log.appendPlainText(blur_detail.strip())
+            if summary.blur_errors_path:
+                self.log.appendPlainText(summary.blur_errors_path)
+            if summary.blur_calcdebug_path:
+                diag_line = tr(self.lang, "calcdebug_done", path=summary.blur_calcdebug_path)
+                self.log.appendPlainText(diag_line)
+                blur_detail += "\n" + diag_line
+        show_result = (
+            QMessageBox.warning if getattr(summary, "blur_cancelled", False)
+            else QMessageBox.information
+        )
+        show_result(
             self,
             tr(self.lang, "done"),
             tr(
@@ -740,7 +794,7 @@ class BatchTab(QWidget):
                 fail=summary.failed,
                 path=summary.output_path,
                 debug=debug,
-            ),
+            ) + ("\n\n" + blur_detail.strip() if blur_detail else ""),
         )
 
     def on_fail(self, message):
@@ -811,6 +865,30 @@ class MatchTab(BatchTab):
         form.addRow(tr(lang, "sample"), self.sample)
         form.addRow(tr(lang, "input"), self.input)
         form.addRow(tr(lang, "output"), self.output)
+        self.blur_enabled = QCheckBox(tr(lang, "blur_output"))
+        self.blur_enabled.setToolTip(tr(lang, "blur_tip"))
+        self.blur_file = PathChooser(lang, "save", "txt_filter")
+        form.addRow(self.blur_enabled, self.blur_file)
+        self.blur_workers = manual_number(QSpinBox())
+        self.blur_workers.setRange(1, MAX_CALC_WORKERS)
+        self.blur_workers.setValue(DEFAULT_CALC_WORKERS)
+        self.blur_workers.setMinimumWidth(95)
+        self.blur_workers.setToolTip(tr(lang, "blur_threads_tip"))
+        blur_jobs = QHBoxLayout()
+        blur_jobs.addWidget(QLabel(tr(lang, "blur_calc_threads")))
+        blur_jobs.addWidget(self.blur_workers)
+        blur_jobs.addStretch()
+        form.addRow("", blur_jobs)
+        self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
+        self.calcdebug_enabled.setToolTip(tr(lang, "calcdebug_tip"))
+        self.calcdebug_folder = PathChooser(lang, "folder")
+        self.calcdebug_folder.setToolTip(tr(lang, "calcdebug_tip"))
+        form.addRow(self.calcdebug_enabled, self.calcdebug_folder)
+        self._suggested_blur_path = ""
+        self.output.edit.textChanged.connect(self.suggest_blur_path)
+        self.blur_enabled.toggled.connect(self.toggle_blur)
+        self.calcdebug_enabled.toggled.connect(self.toggle_calcdebug)
+        self.toggle_blur(False)
 
         self.opts = MatchOpts(lang, self.sample, self.input)
 
@@ -823,11 +901,42 @@ class MatchTab(BatchTab):
         self.content.addWidget(paths)
         self.content.addWidget(self.opts)
         self.content.addWidget(output)
+        self.blur_progress_bar = QProgressBar()
+        self.blur_progress_bar.setRange(0, 1)
+        self.blur_progress_bar.setVisible(False)
+        self.content.addWidget(self.blur_progress_bar)
         self.footer()
         self.run.clicked.connect(self.go)
 
+    def suggest_blur_path(self):
+        folder = self.output.text()
+        suggested = str(Path(folder) / "FindsBlur_Result.txt") if folder else ""
+        previous = self._suggested_blur_path
+        if suggested and (not self.blur_file.text() or self.blur_file.text() == previous):
+            self.blur_file.edit.setText(suggested)
+        self._suggested_blur_path = suggested
+
+    def toggle_blur(self, enabled):
+        self.blur_file.setEnabled(enabled)
+        self.blur_workers.setEnabled(enabled)
+        self.calcdebug_enabled.setEnabled(enabled)
+        self.toggle_calcdebug(self.calcdebug_enabled.isChecked())
+        if enabled:
+            self.suggest_blur_path()
+
+    def toggle_calcdebug(self, enabled):
+        self.calcdebug_folder.setEnabled(self.blur_enabled.isChecked() and enabled)
+
+    def on_blur_progress(self, current, total, message):
+        self.blur_progress_bar.setRange(0, max(1, total))
+        self.blur_progress_bar.setValue(current)
+        self.blur_progress_bar.setFormat(
+            tr(self.lang, "blur_progress", done=current, total=total)
+        )
+        self.log.appendPlainText(message)
+
     def go(self):
-        if path_check(
+        if not path_check(
             self,
             self.lang,
             [
@@ -836,17 +945,63 @@ class MatchTab(BatchTab):
                 (tr(self.lang, "output"), self.output.text()),
             ],
         ):
-            self.start(
-                match_crop,
-                {
-                    "sample": self.sample.text(),
-                    "input_folder": self.input.text(),
-                    "output_folder": self.output.text(),
-                    "settings": self.opts.value(),
-                    "quality": self.q.value(),
-                    **self.common(),
-                },
-            )
+            return
+        blur_output = None
+        blur_calcdebug_root = None
+        if self.blur_enabled.isChecked():
+            blur_output = self.blur_file.text()
+            if not path_check(self, self.lang, [(tr(self.lang, "blur_output"), blur_output)]):
+                return
+            if Path(blur_output).suffix == "":
+                blur_output += ".txt"
+                self.blur_file.edit.setText(blur_output)
+            if Path(blur_output).suffix.lower() != ".txt":
+                QMessageBox.warning(self, tr(self.lang, "missing"), tr(self.lang, "blur_txt_only"))
+                return
+            if Path(blur_output).exists():
+                answer = QMessageBox.question(
+                    self, tr(self.lang, "blur_confirm_title"),
+                    tr(self.lang, "blur_confirm_body", path=blur_output),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+            if self.calcdebug_enabled.isChecked():
+                raw_debug_path = self.calcdebug_folder.text()
+                blur_calcdebug_root = str(
+                    Path(raw_debug_path).expanduser()
+                    if raw_debug_path else Path(blur_output).parent / "CalcDebug"
+                )
+                if Path(blur_calcdebug_root).is_file():
+                    QMessageBox.warning(
+                        self, tr(self.lang, "missing"),
+                        tr(self.lang, "calcdebug_invalid", path=blur_calcdebug_root),
+                    )
+                    return
+                if Path(blur_calcdebug_root).resolve() == Path(blur_output).resolve():
+                    QMessageBox.warning(
+                        self, tr(self.lang, "missing"),
+                        tr(self.lang, "calcdebug_invalid", path=blur_calcdebug_root),
+                    )
+                    return
+        self.blur_progress_bar.setVisible(blur_output is not None)
+        self.blur_progress_bar.setRange(0, 1)
+        self.blur_progress_bar.setValue(0)
+        self.start(
+            match_crop,
+            {
+                "sample": self.sample.text(),
+                "input_folder": self.input.text(),
+                "output_folder": self.output.text(),
+                "settings": self.opts.value(),
+                "quality": self.q.value(),
+                "blur_output": blur_output,
+                "blur_workers": self.blur_workers.value(),
+                "blur_calcdebug_root": blur_calcdebug_root,
+                **self.common(),
+            },
+        )
 
 
 class CenterTab(BatchTab):
@@ -878,6 +1033,7 @@ class CenterTab(BatchTab):
             spin.setSuffix(" px")
 
         self.r = QLineEdit("1/3")
+        self.r.setObjectName("cipaTextInput")
         self.r.setPlaceholderText(tr(lang, "ratio_ph"))
         self.r.setEnabled(False)
         self.fixed.toggled.connect(self.toggle_mode)
