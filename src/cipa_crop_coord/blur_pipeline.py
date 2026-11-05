@@ -40,54 +40,84 @@ class BlurResult:
 
 
 def load_calculator():
-    """Load the recovered implementation without starting its separate GUI.
+    """Resolve the integrated decoder and compute module in source/frozen mode.
 
-    The one-file Windows build includes vendored computation modules and an
-    IJG 8c decoder compiled from the bundled C launcher source.
+    PyInstaller may store imported Python modules in its PYZ archive instead of
+    unpacking every module as an ordinary .py file. Do not infer that the
+    calculator is absent merely because a particular core.py path is missing.
     """
-    # FindsBlur is now stored INSIDE CIPA-Crop-coord. No second repository
-    # checkout, GitHub login, or private source download is required.
-    roots = []
     frozen_root = getattr(sys, "_MEIPASS", None)
+    frozen = bool(getattr(sys, "frozen", False) or frozen_root)
+    candidates: list[Path] = []
     if frozen_root:
-        roots.append(Path(frozen_root) / "vendor" / "findsblur_v131")
+        extracted = Path(frozen_root)
+        candidates.extend(
+            (extracted / "vendor" / "findsblur_v131",
+             extracted / "_internal" / "vendor" / "findsblur_v131")
+        )
+    # The source checkout includes vendored CIPA-Calc v1.3.1.
     project = Path(__file__).resolve().parents[2]
-    roots.append(project / "vendor" / "findsblur_v131")
-    # Compatibility with old development checkouts; never required by users.
-    env_root = os.environ.get("CIPA_CALC_ROOT", "").strip()
-    if env_root:
-        roots.append(Path(env_root).expanduser().resolve())
-    root = next(
-        (
-            candidate for candidate in roots
-            if (candidate / "standalone_gui" / "core.py").is_file()
-            and (candidate / "standalone" / "__main__.py").is_file()
-            and (candidate / "phase11" / "replay_407170_4077eb.py").is_file()
-        ),
+    candidates.append(project / "vendor" / "findsblur_v131")
+    external_root = os.environ.get("CIPA_CALC_ROOT", "").strip()
+    if external_root:
+        candidates.append(Path(external_root).expanduser().resolve())
+
+    seen: set[str] = set()
+    roots: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            seen.add(key)
+            roots.append(candidate)
+
+    # Do not silently import an unrelated system-wide module. If running
+    # from Python source, require the checked-in calculation implementation.
+    source_root = next(
+        (root for root in roots
+         if (root / "standalone_gui" / "core.py").is_file()
+         and (root / "standalone" / "__main__.py").is_file()
+         and (root / "phase11" / "replay_407170_4077eb.py").is_file()),
         None,
     )
-    if root is None:
+    if not frozen and source_root is None:
         raise RuntimeError(
-            "FindsBlur 计算核心不可用：请使用包含 CIPA-Calc 的集成构建，"
-            "或在本地开发时设置 CIPA_CALC_ROOT。"
+            "FindsBlur v1.3.1 的运行源码缺失：请使用完整的 CIPA-Crop-coord 整合版源码。"
         )
-    decoder_env = os.environ.get("FINDSBLUR_IJG8C_EXE", "").strip()
-    bundled_decoder = root / "_work" / "IJG8c" / "bin" / "ijg8c_rgb_probe.exe"
-    if frozen_root and root == Path(frozen_root) / "vendor" / "findsblur_v131" and bundled_decoder.is_file():
-        # The integrated EXE uses its bundled decoder even if a developer's
-        # machine has an old FINDSBLUR_IJG8C_EXE environment override.
-        decoder = bundled_decoder
-    else:
-        decoder = (
-            Path(decoder_env).expanduser().resolve()
-            if decoder_env else bundled_decoder
+
+    for candidate in roots:
+        if candidate.is_dir():
+            for folder in (candidate, candidate / "phase5"):
+                if folder.is_dir() and str(folder) not in sys.path:
+                    sys.path.insert(0, str(folder))
+
+    # The bundled native decoder is a separate executable and MUST be a real
+    # file, even when Python modules are stored as compiled PYZ imports.
+    decoder_candidates = [
+        root / "_work" / "IJG8c" / "bin" / "ijg8c_rgb_probe.exe"
+        for root in roots
+    ]
+    # A developer override is allowed only as a fallback. A packaged build
+    # always prefers the decoder actually embedded into that build.
+    override = os.environ.get("FINDSBLUR_IJG8C_EXE", "").strip()
+    if override:
+        decoder_candidates.append(Path(override).expanduser().resolve())
+    decoder = next((p for p in decoder_candidates if p.is_file()), None)
+    if decoder is None:
+        locations = "; ".join(str(p) for p in decoder_candidates[:3])
+        raise RuntimeError(
+            "集成版缺少 IJG 8c 解码器。查找位置：" + locations
         )
-    if not decoder.is_file():
-        raise RuntimeError("未找到 IJG 8c 解码器：" + str(decoder))
-    for folder in (root, root / "phase5"):
-        if str(folder) not in sys.path:
-            sys.path.insert(0, str(folder))
-    from standalone_gui.core import calculate
+
+    try:
+        # Import by package name. In frozen EXEs this resolves the embedded
+        # compiled module in PyInstaller's PYZ, without a source-file probe.
+        from standalone_gui.core import calculate
+    except (ImportError, OSError, RuntimeError) as exc:
+        roots_text = "; ".join(str(p) for p in roots[:3])
+        raise RuntimeError(
+            "FindsBlur v1.3.1 计算模块导入失败："
+            f"{type(exc).__name__}: {exc}. 运行位置：{roots_text}"
+        ) from exc
     return calculate, decoder
 
 
