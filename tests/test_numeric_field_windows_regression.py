@@ -90,7 +90,15 @@ def _visible_digits_change_when_number_changes(spin) -> None:
         for x in range(5, width):
             if first.pixel(x, y) != second.pixel(x, y):
                 changed += 1
-    assert changed > 2, "Changing value did not change any visible digits"
+    assert changed > 2, (
+        "Changing value did not paint visible digits: "
+        f"type={type(spin).__name__} name={spin.objectName()!r} "
+        f"parent={type(spin.parentWidget()).__name__} "
+        f"values={value1!r}->{value2!r}, "
+        f"current={spin.value()!r}, display={spin.text()!r}, "
+        f"editor={spin.findChild(QLineEdit).geometry()}, "
+        f"spin_size={spin.size()}, inspected_width={width}"
+    )
 
 
 def test_every_page_numeric_field_has_visible_text_and_editable_controls():
