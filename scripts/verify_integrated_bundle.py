@@ -39,7 +39,11 @@ def main() -> None:
     print("Integrated EXE archive contents: PASS")
     print("Path:", exe.resolve())
     print("Bytes:", size)
-    print("SHA256:", sha256(exe.read_bytes()).hexdigest())
+    digest = sha256()
+    with exe.open("rb") as infile:
+        for chunk in iter(lambda: infile.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    print("SHA256:", digest.hexdigest())
 
 
 if __name__ == "__main__":
