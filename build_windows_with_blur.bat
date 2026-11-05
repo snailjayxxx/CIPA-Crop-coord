@@ -59,6 +59,11 @@ python -m PyInstaller --noconfirm --clean CIPA-Crop-Coord.spec
 if errorlevel 1 goto :error
 python scripts\verify_integrated_bundle.py dist\CIPA-Crop-Coord.exe
 if errorlevel 1 goto :error
+
+rem Run a real synthetic JPG through the bundled IJG 8c decoder and the
+rem FindsBlur v1.3.1 calculation/CalcDebug interfaces, without opening GUI.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -FilePath (Resolve-Path 'dist\CIPA-Crop-Coord.exe') -ArgumentList '--self-test-integrated' -PassThru -Wait; if ($p.ExitCode -ne 0) { Write-Error ('Integrated EXE self-test failed: ' + $p.ExitCode); exit 1 }"
+if errorlevel 1 goto :error
 echo.
 echo Verified local integrated EXE: dist\CIPA-Crop-Coord.exe
 echo Validate it on Windows with official FindsBlur input/output samples.
