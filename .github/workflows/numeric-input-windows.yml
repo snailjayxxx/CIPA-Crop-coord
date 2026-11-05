@@ -47,3 +47,12 @@ jobs:
         run: |
           python -m pytest -vv -s tests/test_ui_defaults.py tests/test_numeric_field_windows_regression.py
           if ($LASTEXITCODE -ne 0) { throw "Numeric UI validation failed: no EXE should be published" }
+
+      - name: Upload synthetic numeric-control render diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: numeric-render-diagnostics
+          path: ui-capture/*.png
+          if-no-files-found: ignore
+          retention-days: 7
