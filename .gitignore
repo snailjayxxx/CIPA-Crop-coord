@@ -8,3 +8,5 @@ dist/
 *.egg-info/
 .DS_Store
 *-Windows-ready.zip
+.venv-blur-build/
+.integration_assets/
