@@ -756,6 +756,10 @@ class BatchTab(QWidget):
             self.log.appendPlainText(blur_detail.strip())
             if summary.blur_errors_path:
                 self.log.appendPlainText(summary.blur_errors_path)
+            if summary.blur_calcdebug_path:
+                diag_line = tr(self.lang, "calcdebug_done", path=summary.blur_calcdebug_path)
+                self.log.appendPlainText(diag_line)
+                blur_detail += "\n" + diag_line
         show_result = (
             QMessageBox.warning if getattr(summary, "blur_cancelled", False)
             else QMessageBox.information
@@ -856,9 +860,15 @@ class MatchTab(BatchTab):
         blur_jobs.addWidget(self.blur_workers)
         blur_jobs.addStretch()
         form.addRow("", blur_jobs)
+        self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
+        self.calcdebug_enabled.setToolTip(tr(lang, "calcdebug_tip"))
+        self.calcdebug_folder = PathChooser(lang, "folder")
+        self.calcdebug_folder.setToolTip(tr(lang, "calcdebug_tip"))
+        form.addRow(self.calcdebug_enabled, self.calcdebug_folder)
         self._suggested_blur_path = ""
         self.output.edit.textChanged.connect(self.suggest_blur_path)
         self.blur_enabled.toggled.connect(self.toggle_blur)
+        self.calcdebug_enabled.toggled.connect(self.toggle_calcdebug)
         self.toggle_blur(False)
 
         self.opts = MatchOpts(lang, self.sample, self.input)
@@ -890,8 +900,13 @@ class MatchTab(BatchTab):
     def toggle_blur(self, enabled):
         self.blur_file.setEnabled(enabled)
         self.blur_workers.setEnabled(enabled)
+        self.calcdebug_enabled.setEnabled(enabled)
+        self.toggle_calcdebug(self.calcdebug_enabled.isChecked())
         if enabled:
             self.suggest_blur_path()
+
+    def toggle_calcdebug(self, enabled):
+        self.calcdebug_folder.setEnabled(self.blur_enabled.isChecked() and enabled)
 
     def on_blur_progress(self, current, total, message):
         self.blur_progress_bar.setRange(0, max(1, total))
@@ -913,6 +928,7 @@ class MatchTab(BatchTab):
         ):
             return
         blur_output = None
+        blur_calcdebug_root = None
         if self.blur_enabled.isChecked():
             blur_output = self.blur_file.text()
             if not path_check(self, self.lang, [(tr(self.lang, "blur_output"), blur_output)]):
@@ -932,6 +948,24 @@ class MatchTab(BatchTab):
                 )
                 if answer != QMessageBox.StandardButton.Yes:
                     return
+            if self.calcdebug_enabled.isChecked():
+                raw_debug_path = self.calcdebug_folder.text()
+                blur_calcdebug_root = str(
+                    Path(raw_debug_path).expanduser()
+                    if raw_debug_path else Path(blur_output).parent / "CalcDebug"
+                )
+                if Path(blur_calcdebug_root).is_file():
+                    QMessageBox.warning(
+                        self, tr(self.lang, "missing"),
+                        tr(self.lang, "calcdebug_invalid", path=blur_calcdebug_root),
+                    )
+                    return
+                if Path(blur_calcdebug_root).resolve() == Path(blur_output).resolve():
+                    QMessageBox.warning(
+                        self, tr(self.lang, "missing"),
+                        tr(self.lang, "calcdebug_invalid", path=blur_calcdebug_root),
+                    )
+                    return
         self.blur_progress_bar.setVisible(blur_output is not None)
         self.blur_progress_bar.setRange(0, 1)
         self.blur_progress_bar.setValue(0)
@@ -945,6 +979,7 @@ class MatchTab(BatchTab):
                 "quality": self.q.value(),
                 "blur_output": blur_output,
                 "blur_workers": self.blur_workers.value(),
+                "blur_calcdebug_root": blur_calcdebug_root,
                 **self.common(),
             },
         )
