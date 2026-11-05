@@ -164,6 +164,7 @@ class BlurPipeline:
         self._error = ""
         self._lines: dict[int, str] = {}
         self._failures: list[tuple[str, str]] = []
+        self._calc_sidecar_warnings: list[str] = []
         self._errors_path = ""
         self._debug_run_path = ""
         self._debug_sessions: list[str] = []
@@ -246,6 +247,7 @@ class BlurPipeline:
                     "cancelled": self._cancelled,
                     "error": self._error,
                     "calcdebug_sessions": self._debug_sessions,
+                    "calculator_sidecar_count": len(self._calc_sidecar_warnings),
                     "result_filenames": [
                         self._lines[i].split(" ", 1)[0]
                         for i in sorted(self._lines)
@@ -265,8 +267,13 @@ class BlurPipeline:
                 self.expected = self._queued
                 self._emit(self._attempted, tr(self.lang, "blur_queue_complete"))
             if self._started or self._error:
-                if self._failures or self._error:
+                if self._failures or self._error or self._calc_sidecar_warnings:
                     errors = [f"{filename}: {reason}" for filename, reason in self._failures]
+                    if self._calc_sidecar_warnings:
+                        errors += [
+                            "=== FindsBlur batch diagnostics (v1.3.1) ===",
+                            *self._calc_sidecar_warnings,
+                        ]
                     if self._error:
                         errors.insert(0, self._error)
                     errors_path = self.output.with_name(self.output.stem + "_errors.txt")
@@ -315,6 +322,14 @@ class BlurPipeline:
         session_path = getattr(result, "calcdebug_path", None)
         if session_path is not None:
             self._debug_sessions.append(str(session_path))
+        # Upstream may write non-numeric CalcDebug warnings even when all
+        # four-column measurements succeed. Preserve these sidecars before
+        # the temporary batch folder is deleted.
+        upstream_errors = getattr(result, "errors_path", None)
+        if upstream_errors is not None and Path(upstream_errors).is_file():
+            self._calc_sidecar_warnings.append(
+                Path(upstream_errors).read_text(encoding="utf-8-sig")
+            )
         if not temp_txt.is_file():
             raise RuntimeError("计算核心未生成批次 TXT：" + str(temp_txt))
         lines = temp_txt.read_text(encoding="utf-8-sig").splitlines()
