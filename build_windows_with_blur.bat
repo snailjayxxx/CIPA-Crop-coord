@@ -25,7 +25,20 @@ if not exist "%FINDSBLUR_IJG8C_EXE%" (
     goto :error
 )
 
-py -3.11 -m venv .venv-blur-build
+rem FindsBlur v1.3.1 upstream Windows CI uses Python 3.12.
+rem Accept 3.11 when 3.12 is not installed.
+py -3.12 --version >nul 2>&1
+if not errorlevel 1 (
+    set "PY_LAUNCH=py -3.12"
+) else (
+    py -3.11 --version >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Python 3.12 or 3.11 x64 is required.
+        goto :error
+    )
+    set "PY_LAUNCH=py -3.11"
+)
+%PY_LAUNCH% -m venv .venv-blur-build
 if errorlevel 1 goto :error
 call .venv-blur-build\Scripts\activate.bat
 if errorlevel 1 goto :error
