@@ -44,7 +44,7 @@ class Summary:
     total:int=0; succeeded:int=0; failed:int=0; skipped:int=0; output_path:str=""; debug_path:str=""
     blur_requested:bool=False; blur_output:str=""; blur_queued:int=0
     blur_attempted:int=0; blur_succeeded:int=0; blur_failed:int=0
-    blur_skipped_minimum:bool=False; blur_cancelled:bool=False; blur_error:str=""; blur_errors_path:str=""
+    blur_skipped_minimum:bool=False; blur_cancelled:bool=False; blur_error:str=""; blur_errors_path:str=""; blur_calcdebug_path:str=""
 
 
 def images(folder,exclude:Iterable=(),lang="zh"):
@@ -164,13 +164,21 @@ def _count(summary,results):
         else:summary.failed+=1
 
 
-def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=95,progress=None,cancel=None,lang="zh",workers=DEFAULT_WORKERS,debug=False,blur_output=None,blur_workers=DEFAULT_CALC_WORKERS,blur_progress=None):
-    dbg=Path(output_folder)/"_debug_match_crop"; fs=images(input_folder,[output_folder,dbg],lang); prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
+def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=95,progress=None,cancel=None,lang="zh",workers=DEFAULT_WORKERS,debug=False,blur_output=None,blur_workers=DEFAULT_CALC_WORKERS,blur_progress=None,blur_calcdebug_root=None):
+    dbg=Path(output_folder)/"_debug_match_crop"
+    # The user may keep CalcDebug outputs under an input directory.
+    # Exclude those diagnostic PNGs on subsequent runs.
+    exclusions = [output_folder, dbg]
+    if blur_output and blur_calcdebug_root:
+        exclusions.append(blur_calcdebug_root)
+    fs=images(input_folder,exclusions,lang)
+    prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
     # Validation and backend resolution happen before launching any crop task.
     # A separate worker thread consumes successfully saved crops once 16 exist.
     blur = BlurPipeline(
         blur_output, workers=blur_workers, expected=len(fs),
         progress=blur_progress, cancel=cancel, lang=lang,
+        calcdebug_root=blur_calcdebug_root,
     ) if blur_output else None
     if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
     if blur:
@@ -203,6 +211,7 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
         s.blur_cancelled = blur_result.cancelled
         s.blur_error = blur_result.error
         s.blur_errors_path = blur_result.errors_path
+        s.blur_calcdebug_path = blur_result.calcdebug_path
     return s
 
 
