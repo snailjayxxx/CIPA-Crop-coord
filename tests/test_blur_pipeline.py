@@ -102,3 +102,77 @@ def test_calculation_worker_cap_is_independent_from_crop_workers(tmp_path):
     for value in (0, 5):
         with pytest.raises(ValueError, match="1～4"):
             BlurPipeline(tmp_path / "invalid.txt", workers=value, backend=_backend([]))
+
+
+
+def test_calcdebug_v131_uses_one_local_run_folder_with_batch_sessions(tmp_path):
+    import json
+
+    calls = []
+    root = tmp_path / "CalcDebug"
+
+    def calculate(images, target, decoder, *, workers, progress, cancel, language,
+                  calcdebug_root=None):
+        assert calcdebug_root is not None, "the v1.3.1 API must receive calcdebug_root"
+        session = Path(calcdebug_root) / f"batch_session_{len(calls)}"
+        session.mkdir(parents=True)
+        (session / "session_manifest.json").write_text("{}", encoding="utf-8")
+        calls.append((len(images), str(calcdebug_root), str(session)))
+        target.write_text(
+            "".join(f"{p.name} 1.000000 2.000000 3.000000 4.000000\n" for p in images),
+            encoding="utf-8",
+        )
+        for done, path in enumerate(images, 1):
+            progress(done, len(images), path, True, "ok")
+        return SimpleNamespace(
+            completed=len(images), successful=len(images),
+            failures=(), cancelled=False, calcdebug_path=session,
+        )
+
+    pipeline = BlurPipeline(
+        tmp_path / "out.txt", workers=3, expected=19,
+        backend=(calculate, Path("test_decoder.exe")),
+        calcdebug_root=root,
+    )
+    pipeline.start()
+    for index in range(19):
+        pipeline.submit(index, tmp_path / f"{index:03d}.jpg")
+    result = pipeline.finish()
+    assert [batch[0] for batch in calls] == [16, 3]
+    assert result.attempted == result.successful == 19
+    assert Path(result.calcdebug_path).is_dir()
+    assert Path(result.calcdebug_path).parent == root
+    assert {parent for _, parent, _ in calls} == {result.calcdebug_path}
+    manifest = json.loads(
+        (Path(result.calcdebug_path) / "crop_pipeline_manifest.json").read_text(
+            encoding="utf-8",
+        )
+    )
+    assert len(manifest["calcdebug_sessions"]) == 2
+    assert manifest["images_successful"] == 19
+    assert manifest["result_filenames"] == [f"{n:03d}.jpg" for n in range(19)]
+
+
+def test_calcdebug_does_not_create_images_before_16_crops(tmp_path):
+    root = tmp_path / "CalcDebug"
+    pipeline = BlurPipeline(
+        tmp_path / "out.txt", workers=2, backend=_backend([]),
+        calcdebug_root=root,
+    )
+    pipeline.start()
+    for index in range(15):
+        pipeline.submit(index, tmp_path / f"{index:03}.jpg")
+    result = pipeline.finish()
+    assert result.below_minimum
+    assert result.calcdebug_path == ""
+    assert not root.exists()
+
+
+def test_calcdebug_path_rejects_existing_file(tmp_path):
+    raw_file = tmp_path / "not_a_directory.txt"
+    raw_file.write_text("keep", encoding="utf-8")
+    with pytest.raises(ValueError, match="CalcDebug"):
+        BlurPipeline(
+            tmp_path / "out.txt", backend=_backend([]),
+            calcdebug_root=raw_file,
+        )
