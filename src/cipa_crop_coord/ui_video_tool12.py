@@ -272,6 +272,8 @@ class VideoTab(ui.BatchTab):
         self.fps_label = QLabel("-")
         self.start_edit = QLineEdit()
         self.end_edit = QLineEdit()
+        self.start_edit.setObjectName("cipaTextInput")
+        self.end_edit.setObjectName("cipaTextInput")
         self.start_edit.editingFinished.connect(lambda: self.commit_time("start"))
         self.end_edit.editingFinished.connect(lambda: self.commit_time("end"))
         info_form.addRow(txt(lang, "duration"), self.duration_label)
