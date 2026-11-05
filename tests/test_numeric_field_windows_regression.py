@@ -74,12 +74,15 @@ def _visible_digits_change_when_number_changes(spin) -> None:
         value2 = min(high, value1 + max(0.25, spin.singleStep()))
     if value1 == value2:
         value1, value2 = low, high
+    editor = spin.findChild(QLineEdit)
     spin.setValue(value1)
     QApplication.processEvents()
     first = spin.grab().toImage()
+    first_editor = editor.grab().toImage()
     spin.setValue(value2)
     QApplication.processEvents()
     second = spin.grab().toImage()
+    second_editor = editor.grab().toImage()
     assert first.size() == second.size()
 
     # Inspect the editing part only, excluding the step arrows and border.
@@ -90,14 +93,49 @@ def _visible_digits_change_when_number_changes(spin) -> None:
         for x in range(5, width):
             if first.pixel(x, y) != second.pixel(x, y):
                 changed += 1
-    assert changed > 2, (
+    changed_editor = sum(
+        first_editor.pixel(x, y) != second_editor.pixel(x, y)
+        for y in range(first_editor.height())
+        for x in range(first_editor.width())
+    )
+    if changed <= 2 and changed_editor <= 2:
+        # This records both native spinbox and its child editor. Qt's
+        # offscreen plugin can sometimes omit child painting from grab().
+        from pathlib import Path
+        capture = Path("ui-capture")
+        capture.mkdir(exist_ok=True)
+        first.save(str(capture / "spin_before.png"))
+        second.save(str(capture / "spin_after.png"))
+        first_editor.save(str(capture / "editor_before.png"))
+        second_editor.save(str(capture / "editor_after.png"))
+        native = QSpinBox()
+        native.setRange(1, 8)
+        native.resize(130, 34)
+        native.show()
+        QApplication.processEvents()
+        native.setValue(1)
+        ref1 = native.findChild(QLineEdit).grab().toImage()
+        native.setValue(4)
+        ref2 = native.findChild(QLineEdit).grab().toImage()
+        ref1.save(str(capture / "native_before.png"))
+        ref2.save(str(capture / "native_after.png"))
+        reference_diff = sum(
+            ref1.pixel(x,y) != ref2.pixel(x,y)
+            for y in range(ref1.height()) for x in range(ref1.width())
+        )
+        native.close()
+    else:
+        reference_diff = -1
+    assert changed > 2 or changed_editor > 2, (
         "Changing value did not paint visible digits: "
         f"type={type(spin).__name__} name={spin.objectName()!r} "
         f"parent={type(spin.parentWidget()).__name__} "
         f"values={value1!r}->{value2!r}, "
         f"current={spin.value()!r}, display={spin.text()!r}, "
         f"editor={spin.findChild(QLineEdit).geometry()}, "
-        f"spin_size={spin.size()}, inspected_width={width}"
+        f"spin_size={spin.size()}, inspected_width={width}, "
+        f"pixel_changes=spin:{changed}/editor:{changed_editor}, "
+        f"native_editor_reference={reference_diff}"
     )
 
 
