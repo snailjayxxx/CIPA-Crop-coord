@@ -1,10 +1,7 @@
 name: Build CIPA Crop + FindsBlur v1.3.1 (Integrated Windows EXE)
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [feature/match-crop-findblur-pipeline-20261105]
+  workflow_call:
   workflow_dispatch:
 
 permissions:

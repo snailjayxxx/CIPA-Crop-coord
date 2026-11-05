@@ -23,42 +23,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install dependencies
-        run: python -m pip install -r requirements-dev.txt
-
-      - name: Run tests
-        run: python -m pytest
-
-      - name: Validate optional private integration build scripts
-        shell: pwsh
-        run: |
-          python -m py_compile scripts/check_calc_source_v131.py scripts/verify_integrated_bundle.py
-          $tokens = $null
-          $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path build_windows_with_blur_autofetch.ps1), [ref]$tokens, [ref]$parseErrors) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | Format-List
-            throw "The integrated build PowerShell script has syntax errors."
-          }
-
-      - name: Build EXE
-        run: python -m PyInstaller --noconfirm --clean CIPA-Crop-Coord.spec
-
-      - name: Upload EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: CIPA-Crop-Coord-Windows
-          path: dist/CIPA-Crop-Coord.exe
-          if-no-files-found: error
+    name: Build complete integrated Windows EXE
+    uses: ./.github/workflows/build-integrated-windows.yml
+    permissions:
+      contents: read
 
   release:
     name: Publish Release
@@ -78,7 +46,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: CIPA-Crop-Coord-Windows
+          name: CIPA-Crop-Coord-Integrated-FindsBlur-v1.3.1
           path: dist
 
       - name: Publish EXE and checksum

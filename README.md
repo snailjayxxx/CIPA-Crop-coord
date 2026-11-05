@@ -13,6 +13,8 @@
 
 正式版下载：[GitHub Releases](https://github.com/snailjayxxx/CIPA-Crop-coord/releases/latest)。下载 `CIPA-Crop-Coord.exe` 后即可运行。
 
+> **注意**：当前正式版 Release v6.1.0 仍是旧版裁切功能；包含 FindsBlur v1.3.1 的集成测试版在 [PR #7](https://github.com/snailjayxxx/CIPA-Crop-coord/pull/7) 和相应 Actions 构建中。待官方数值对照验证后，再合并与发布新版。
+
 ## 图片生成视频（含 v6.1 补丁）
 
 - 每秒图片数默认为 10，可自行设置；视频时长为总帧数除以每秒图片数。
@@ -83,7 +85,7 @@
 
 1. Pull Request 指向 `main` 时会自动执行测试与 Windows EXE 构建。
 2. 也可在 **Actions → Build Windows EXE → Run workflow** 手动构建。
-3. 完成后下载 `CIPA-Crop-Coord-Windows` artifact，里面是单文件 EXE。
+3. 完成后下载 `CIPA-Crop-Coord-Integrated-FindsBlur-v1.3.1` 附件，里面是包含裁切与抖动计算的单文件 EXE。
 4. 推送 `v1.1.0` 这类 tag 也会自动构建。
 
 ### 正式发布
