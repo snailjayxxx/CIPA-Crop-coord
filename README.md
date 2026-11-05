@@ -170,4 +170,25 @@ build_windows_with_blur.bat
 
 常规 `build_windows.bat` 和公开 GitHub Actions 构建仍是**裁切功能构建**，不包含私有计算核心；因此，使用这类 EXE 勾选计算选项会提示计算核心不可用。
 
+### 一键获取私有计算源和解码器并在 Windows 本机打包
+
+如果本机安装了 Git、[GitHub CLI](https://cli.github.com/) 和 Python 3.12（或 3.11），且 GitHub 账号有私有 `snailjayxxx/CIPA-Calc` 访问权限，可以简化为：
+
+```powershell
+gh auth login
+git clone --branch feature/match-crop-findblur-pipeline-20261105 https://github.com/snailjayxxx/CIPA-Crop-coord.git
+cd CIPA-Crop-coord
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_windows_with_blur_autofetch.ps1
+```
+
+`build_windows_with_blur_autofetch.ps1` 在本机寻找（或用已登录的 `gh` 私下克隆）`CIPA-Calc/main`，若没有编译好的 IJG8c 解码器，则通过 `gh run download` 获取私有 FindsBlur v1.3.1 CI 工件并解压。随后执行受版本检查和 PyInstaller 归档检查保护的 `build_windows_with_blur.bat`，生成：
+
+```text
+CIPA-Crop-coord/dist/CIPA-Crop-Coord.exe
+```
+
+**这是个人电脑上的集成 EXE 构建流程；它不会上传私人计算代码、CalcDebug PNG 或源照片。** 不要将 `.integration_assets`、`.venv-blur-build`、`dist` 等内容上传到公共仓库（已加入忽略）。下载私有计算源只发生在 Windows 本机，本仓库 GitHub Actions 不执行该步骤，因此公开 Actions 的 EXE **不是**计算集成版。
+
+请特别注意：当前对话运行在非 Windows 环境，无法直接验证该集成 EXE 的 Windows 运行和官方计算结果，源代码集成及模拟测试成功不等于正式验收成功。
+
 **验收边界：** 目前完成的是工作流整合代码，不代表 FindsBlur 还原算法已与官方 EXE 全面数值一致。必须在 Windows 本机使用官方样本进行 15/16/17 张门槛测试、取消、JPEG 保存质量 100%、中日英语言切换、独立线程 1～4、113 张及 110 张官方 TXT 对比，以及集成 EXE 运行验证。通过前不合并 main、不发布正式版。
