@@ -77,46 +77,21 @@ QGroupBox {
     background: white;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-QLineEdit, QPlainTextEdit {
+/* Apply rounded input styling only to standalone text fields.
+   The QLineEdit hidden inside each QSpinBox must use Qt's native painting:
+   applying generic QLineEdit/QSpinBox QSS to it made numerical text disappear
+   in the PySide6 Windows build. */
+QLineEdit#cipaTextInput, QPlainTextEdit {
     border: 1px solid #c9ced7;
     border-radius: 5px;
     padding: 5px;
-    background: white;
-    color: #202936;
-    selection-background-color: #2d7be8;
-    selection-color: white;
-}
-/* A QSpinBox contains a QLineEdit. Styling that embedded editor as a
-   standalone path editor can cover its text/editing area on Windows.
-   Reserve space for step buttons, and explicitly style the inner editor. */
-QSpinBox, QDoubleSpinBox {
-    border: 1px solid #c9ced7;
-    border-radius: 5px;
-    padding: 2px 23px 2px 7px;
-    min-height: 26px;
     background-color: #ffffff;
     color: #202936;
     selection-background-color: #2d7be8;
     selection-color: white;
 }
-QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 1px solid #2d7be8;
-}
-QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    margin: 0;
-    min-height: 0;
-    background: transparent;
-    color: #202936;
-    selection-background-color: #2d7be8;
-    selection-color: white;
-}
-QSpinBox::up-button, QSpinBox::down-button,
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
-    width: 18px;
-}
+/* QSpinBox and QDoubleSpinBox deliberately have NO QSS rules; let the native
+   Windows/Qt style paint their editor and step arrows consistently. */
 QPushButton {
     border: 1px solid #b8bec8;
     border-radius: 5px;
@@ -157,6 +132,7 @@ def manual_number(spin):
     spin.setKeyboardTracking(False)
     spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     spin.setAccelerated(True)
+    spin.setMinimumHeight(30)
     editor = spin.findChild(QLineEdit)
     if editor is not None:
         editor.setReadOnly(False)
@@ -180,6 +156,7 @@ class PathChooser(QWidget):
         self.mode = mode
         self.save_key = save_key
         self.edit = QLineEdit()
+        self.edit.setObjectName("cipaTextInput")
         button = QPushButton(tr(lang, "browse"))
         button.clicked.connect(self.browse)
         layout = QHBoxLayout(self)
@@ -1056,6 +1033,7 @@ class CenterTab(BatchTab):
             spin.setSuffix(" px")
 
         self.r = QLineEdit("1/3")
+        self.r.setObjectName("cipaTextInput")
         self.r.setPlaceholderText(tr(lang, "ratio_ph"))
         self.r.setEnabled(False)
         self.fixed.toggled.connect(self.toggle_mode)
