@@ -1,0 +1,49 @@
+name: Windows numeric-entry rendering regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/cipa_crop_coord/ui.py"
+      - "src/cipa_crop_coord/ui_coord_modes.py"
+      - "src/cipa_crop_coord/ui_image_to_video.py"
+      - "tests/test_numeric_field_windows_regression.py"
+      - "tests/test_ui_defaults.py"
+      - ".github/workflows/numeric-input-windows.yml"
+  push:
+    branches: [feature/match-crop-findblur-pipeline-20261105]
+    paths:
+      - "src/cipa_crop_coord/ui.py"
+      - "src/cipa_crop_coord/ui_coord_modes.py"
+      - "src/cipa_crop_coord/ui_image_to_video.py"
+      - "tests/test_numeric_field_windows_regression.py"
+      - "tests/test_ui_defaults.py"
+      - ".github/workflows/numeric-input-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  numeric-input:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install UI and test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
+
+      - name: Verify Windows rendered numbers, mouse arrows and typing
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest -vv -s tests/test_ui_defaults.py tests/test_numeric_field_windows_regression.py
+          if ($LASTEXITCODE -ne 0) { throw "Numeric UI validation failed: no EXE should be published" }
