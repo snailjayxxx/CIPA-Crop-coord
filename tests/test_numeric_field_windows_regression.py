@@ -10,7 +10,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -45,7 +45,9 @@ def _entry(spin):
 def _type(spin, value):
     editor = _entry(spin)
     spin.setFocus()
-    editor.setFocus()
+    QTest.mouseClick(
+        editor, Qt.MouseButton.LeftButton, pos=editor.rect().center()
+    )
     editor.selectAll()
     QTest.keyClicks(editor, str(value))
     QTest.keyClick(editor, Qt.Key.Key_Return)
@@ -187,4 +189,27 @@ def test_numeric_style_and_defaults_work_in_all_languages():
             finally:
                 tab.close()
     finally:
+        app.setStyleSheet(previous)
+
+
+def test_mouse_step_buttons_can_choose_worker_counts():
+    app = _app()
+    previous = app.styleSheet()
+    app.setStyleSheet(STYLE)
+    tab = MatchTab("zh")
+    tab.blur_enabled.setChecked(True)
+    try:
+        tab.show()
+        app.processEvents()
+        for spin in (tab.workers, tab.blur_workers):
+            spin.setValue(2)
+            app.processEvents()
+            QTest.mouseClick(
+                spin, Qt.MouseButton.LeftButton,
+                pos=QPoint(spin.width() - 9, max(6, spin.height() // 4)),
+            )
+            app.processEvents()
+            assert spin.value() == 3, "Clicking the up arrow must increment"
+    finally:
+        tab.close()
         app.setStyleSheet(previous)
