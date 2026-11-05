@@ -78,3 +78,35 @@ def test_calculation_backend_failure_before_cropping_17_images(
             blur_workers=4,
         )
     assert not list(out.glob("*.jpg")), "Preflight must prevent wasted cropping"
+
+
+def test_short_batch_below_16_does_not_require_findsblur_backend(
+    tmp_path, monkeypatch,
+):
+    cv2 = pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
+    sample_pixels = np.random.default_rng(15).integers(
+        40, 220, (20, 30, 3), dtype=np.uint8
+    )
+    sample = tmp_path / "sample.jpg"
+    assert cv2.imwrite(str(sample), sample_pixels)
+    input_dir = tmp_path / "source"
+    input_dir.mkdir()
+    for index in range(15):
+        frame = np.zeros((100, 130, 3), dtype=np.uint8)
+        frame[38:58, 50:80] = sample_pixels
+        assert cv2.imwrite(str(input_dir / f"photo_{index:03d}.jpg"), frame)
+
+    def unavailable():
+        raise AssertionError("The backend must not load for <16 images")
+
+    monkeypatch.setattr(blur_pipeline, "load_calculator", unavailable)
+    destination = tmp_path / "result.txt"
+    summary = match_crop(
+        sample, input_dir, tmp_path / "out",
+        MatchSettings(edge_mask=0, search_mask=0, threshold=-1, coarse=180),
+        workers=2, blur_output=destination,
+    )
+    assert summary.succeeded == 15
+    assert summary.blur_skipped_minimum
+    assert not destination.exists()
