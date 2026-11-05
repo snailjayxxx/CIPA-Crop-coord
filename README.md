@@ -149,6 +149,10 @@ python -m pytest
 - **成功保存 16 张裁切图片**之后才启动计算，后续裁切与计算可并行进行；计算队列处理完全部成功裁切的图片后才宣告整个任务完成。最终成功裁切不足 16 张时，不创建新的 TXT。
 - 计算输出按照源图遍历顺序排列（不是裁切线程完成顺序），每张实际尝试计算的图片保留一行「裁切后文件名 + 四个数值」；失败保留日文失败行，并另写 `_errors.txt`。裁切图片本身不受计算失败影响。
 - **仅使用本地已还原的 FindsBlur 计算核心和 IJG 8c 解码器**。计算核心在独立的私有 `snailjayxxx/CIPA-Calc` 仓库中，本公开仓库只包含调用桥接代码，**不包含**原版商业 EXE、私有计算源码、个人照片或计算结果。
+- **FindsBlur v1.3.1（基线 `CIPA-Calc/main@09815ec8`）**：使用新版原生标记选择修正（`0x402B00`）以及解码器隐藏 CMD 窗口的修复。默认工作模式不改变四列 TXT 格式。
+- **可选 CalcDebug**：仅在勾选抖动量计算后提供另一项复选框和文件夹选择。默认关闭，路径留空时使用 TXT 旁的 `CalcDebug` 文件夹。启用后记录每张计算图片的中间图（最多 20 个处理阶段的无损 PNG，另有原始 RGB 参考、彩色辅助图）和诊断 JSON。失败时只留下实际执行过的步骤。
+- **CalcDebug 按运行分组**：因为裁切和计算同时进行，集成版分批调用不修改的 `standalone_gui.core.calculate()`；每次裁切任务会生成一个 `crop_calcdebug_*` 文件夹，内部包含原生 CalcDebug 批次 session，以及 `crop_pipeline_manifest.json` 汇总，便于回溯。
+- 诊断 PNG 可能包含裁切图片原始像素和本地文件路径；**仅保存在本机，严禁上传到公开仓库**。未勾选 CalcDebug 不增加相关输出。
 
 ### Windows 本地集成构建
 
@@ -160,6 +164,10 @@ rem 可选：set "FINDSBLUR_IJG8C_EXE=C:\\path\\ijg8c_rgb_probe.exe"
 build_windows_with_blur.bat
 ```
 
-构建脚本运行测试并将计算模块及解码器仅打入本机生成的 `dist\\CIPA-Crop-Coord.exe`，不更改、不上传 CIPA-Calc 的任何文件。常规 `build_windows.bat` 和公开 GitHub Actions 构建仍是**裁切功能构建**，不包含私有计算核心；因此，使用这类 EXE 勾选计算选项会提示计算核心不可用。
+构建脚本首先只读检查本地 CIPA-Calc 是否至少具备 v1.3.1 API（`calcdebug_root`、`_decoder_creationflags`），再执行测试、打包，并检查生成的单文件 EXE 归档**确实包含** `standalone_gui/calcdebug.py`、计算核心、`phase12` 算法文件和 IJG8c 解码器；缺失会直接报错，绝不误报“集成成功”。构建脚本不更改、不上传 CIPA-Calc 的任何文件。
+
+若本地缺少编译好的 IJG8c 解码器，可从私有 CIPA-Calc 的 [v1.3.1 Windows CI 附件](https://github.com/snailjayxxx/CIPA-Calc/actions/runs/41949794737) 下载完整 ZIP，解压后使用 `FindsBlur_Standalone/_internal/_work/IJG8c/bin/ijg8c_rgb_probe.exe` 作为 `FINDSBLUR_IJG8C_EXE`，**不能只复制最外层 Standalone.exe**。
+
+常规 `build_windows.bat` 和公开 GitHub Actions 构建仍是**裁切功能构建**，不包含私有计算核心；因此，使用这类 EXE 勾选计算选项会提示计算核心不可用。
 
 **验收边界：** 目前完成的是工作流整合代码，不代表 FindsBlur 还原算法已与官方 EXE 全面数值一致。必须在 Windows 本机使用官方样本进行 15/16/17 张门槛测试、取消、JPEG 保存质量 100%、中日英语言切换、独立线程 1～4、113 张及 110 张官方 TXT 对比，以及集成 EXE 运行验证。通过前不合并 main、不发布正式版。
