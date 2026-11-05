@@ -72,10 +72,16 @@ def load_calculator():
             "或在本地开发时设置 CIPA_CALC_ROOT。"
         )
     decoder_env = os.environ.get("FINDSBLUR_IJG8C_EXE", "").strip()
-    decoder = (
-        Path(decoder_env).expanduser().resolve()
-        if decoder_env else root / "_work" / "IJG8c" / "bin" / "ijg8c_rgb_probe.exe"
-    )
+    bundled_decoder = root / "_work" / "IJG8c" / "bin" / "ijg8c_rgb_probe.exe"
+    if frozen_root and root == Path(frozen_root) and bundled_decoder.is_file():
+        # A self-contained integrated EXE must use the decoder it shipped
+        # with, even on the developer's PC where an override is still set.
+        decoder = bundled_decoder
+    else:
+        decoder = (
+            Path(decoder_env).expanduser().resolve()
+            if decoder_env else bundled_decoder
+        )
     if not decoder.is_file():
         raise RuntimeError("未找到 IJG 8c 解码器：" + str(decoder))
     for folder in (root, root / "phase5"):
