@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image
 from .locales import tr
-from .blur_pipeline import BlurPipeline, DEFAULT_CALC_WORKERS
+from .blur_pipeline import BlurPipeline, DEFAULT_CALC_WORKERS, MIN_CALC_IMAGES
+from . import blur_pipeline as blur_runtime
 
 EXT={".jpg",".jpeg",".png",".bmp",".tif",".tiff",".webp"}
 DEFAULT_SEARCH_MASK=100/6
@@ -173,12 +174,19 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
         exclusions.append(blur_calcdebug_root)
     fs=images(input_folder,exclusions,lang)
     prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
-    # Validation and backend resolution happen before launching any crop task.
-    # A separate worker thread consumes successfully saved crops once 16 exist.
+    # Do not spend minutes cropping 100+ photos before discovering that the
+    # requested FindsBlur backend cannot be loaded. Import/decoder preflight
+    # occurs BEFORE the first crop, while actual measurement still begins
+    # only after the 16th successfully saved photo. Short batches (<16)
+    # still crop normally without requiring the calculation runtime.
+    blur_backend = (
+        blur_runtime.load_calculator()
+        if blur_output and len(fs) >= MIN_CALC_IMAGES else None
+    )
     blur = BlurPipeline(
         blur_output, workers=blur_workers, expected=len(fs),
         progress=blur_progress, cancel=cancel, lang=lang,
-        calcdebug_root=blur_calcdebug_root,
+        calcdebug_root=blur_calcdebug_root, backend=blur_backend,
     ) if blur_output else None
     if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
     if blur:
