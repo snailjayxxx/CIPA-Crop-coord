@@ -38,6 +38,18 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name: Validate optional private integration build scripts
+        shell: pwsh
+        run: |
+          python -m py_compile scripts/check_calc_source_v131.py scripts/verify_integrated_bundle.py
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path build_windows_with_blur_autofetch.ps1), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | Format-List
+            throw "The integrated build PowerShell script has syntax errors."
+          }
+
       - name: Build EXE
         run: python -m PyInstaller --noconfirm --clean CIPA-Crop-Coord.spec
 
