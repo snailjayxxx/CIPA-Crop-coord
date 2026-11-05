@@ -1,0 +1,99 @@
+name: Build CIPA Crop + FindsBlur v1.3.1 (Integrated Windows EXE)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/match-crop-findblur-pipeline-20261105]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW for authentic IJG 8c
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            make
+            curl
+            tar
+
+      - name: Build JPEG decoder from public IJG 8c source
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          curl -fLsS --retry 3 https://ijg.org/files/jpegsrc.v8c.tar.gz -o jpegsrc.v8c.tar.gz
+          tar -xzf jpegsrc.v8c.tar.gz
+          test -d jpeg-8c
+          cd jpeg-8c
+          ./configure --disable-shared --enable-static
+          make -j2
+          mkdir -p ../vendor/findsblur_v131/_work/IJG8c/bin
+          if [ -f .libs/libjpeg.a ]; then LIB=.libs/libjpeg.a; elif [ -f libjpeg.a ]; then LIB=libjpeg.a; else exit 2; fi
+          gcc -std=c11 -O2 -municode -static -I. ../vendor/findsblur_v131/tools/ijg8c_rgb_probe.c "$LIB"             -o ../vendor/findsblur_v131/_work/IJG8c/bin/ijg8c_rgb_probe.exe
+          test -s ../vendor/findsblur_v131/_work/IJG8c/bin/ijg8c_rgb_probe.exe
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+
+      - name: Install all integrated dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -r requirements-blur.txt
+
+      - name: Run CIPA Crop tests and verify vendored FindsBlur v1.3.1
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          FINDSBLUR_IJG8C_EXE: ${{ github.workspace }}\vendor\findsblur_v131\_work\IJG8c\bin\ijg8c_rgb_probe.exe
+        run: |
+          python -m pytest -q
+          python scripts/check_calc_source_v131.py
+          python -c "import sys; sys.path.insert(0, 'vendor/findsblur_v131'); import standalone_gui.core; from phase12.whole_image_until_flags import analyze_to_flags; print('Vendored algorithm imports: PASS')"
+
+      - name: Build all-in-one Windows EXE
+        shell: pwsh
+        env:
+          CIPA_BUILD_INTEGRATED: '1'
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m PyInstaller --noconfirm --clean CIPA-Crop-Coord.spec
+          python scripts/verify_integrated_bundle.py dist/CIPA-Crop-Coord.exe
+
+      - name: Smoke test real bundled decoder and CalcDebug (no original images)
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $path = (Resolve-Path "dist/CIPA-Crop-Coord.exe").Path
+          $p = Start-Process -FilePath $path -ArgumentList "--self-test-integrated" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Integrated runtime test failed: $($p.ExitCode)" }
+
+      - name: Generate checksum
+        shell: pwsh
+        run: |
+          (Get-FileHash "dist/CIPA-Crop-Coord.exe" -Algorithm SHA256).Hash |
+            Set-Content "dist/SHA256.txt"
+
+      - name: Upload fully integrated EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIPA-Crop-Coord-Integrated-FindsBlur-v1.3.1
+          path: |
+            dist/CIPA-Crop-Coord.exe
+            dist/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30

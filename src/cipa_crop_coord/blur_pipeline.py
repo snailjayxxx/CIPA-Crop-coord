@@ -1,7 +1,7 @@
 """Optional streaming FindsBlur bridge for Similar Area Crop.
 
-The independent CIPA-Calc repository is read-only. Its source and IJG 8c
-decoder are provided at local build time, not copied into this public repo.
+The integrated reconstructed calculation source lives under vendor/findsblur_v131.
+It is copied from CIPA-Calc v1.3.1, which remains unchanged.
 """
 from __future__ import annotations
 
@@ -42,21 +42,21 @@ class BlurResult:
 def load_calculator():
     """Load the recovered implementation without starting its separate GUI.
 
-    Packaged builds include the private modules as local PyInstaller data.
-    Development runs may point CIPA_CALC_ROOT to a sibling checkout.
+    The one-file Windows build includes vendored computation modules and an
+    IJG 8c decoder compiled from the bundled C launcher source.
     """
-    env_root = os.environ.get("CIPA_CALC_ROOT", "").strip()
+    # FindsBlur is now stored INSIDE CIPA-Crop-coord. No second repository
+    # checkout, GitHub login, or private source download is required.
     roots = []
     frozen_root = getattr(sys, "_MEIPASS", None)
     if frozen_root:
-        # The executable's bundled sources take precedence over any developer
-        # environment variable retained on the machine at runtime.
-        roots.append(Path(frozen_root))
+        roots.append(Path(frozen_root) / "vendor" / "findsblur_v131")
+    project = Path(__file__).resolve().parents[2]
+    roots.append(project / "vendor" / "findsblur_v131")
+    # Compatibility with old development checkouts; never required by users.
+    env_root = os.environ.get("CIPA_CALC_ROOT", "").strip()
     if env_root:
         roots.append(Path(env_root).expanduser().resolve())
-    else:
-        project = Path(__file__).resolve().parents[2]
-        roots.extend((project.parent / "CIPA-Calc", project / "CIPA-Calc"))
     root = next(
         (
             candidate for candidate in roots
@@ -73,9 +73,9 @@ def load_calculator():
         )
     decoder_env = os.environ.get("FINDSBLUR_IJG8C_EXE", "").strip()
     bundled_decoder = root / "_work" / "IJG8c" / "bin" / "ijg8c_rgb_probe.exe"
-    if frozen_root and root == Path(frozen_root) and bundled_decoder.is_file():
-        # A self-contained integrated EXE must use the decoder it shipped
-        # with, even on the developer's PC where an override is still set.
+    if frozen_root and root == Path(frozen_root) / "vendor" / "findsblur_v131" and bundled_decoder.is_file():
+        # The integrated EXE uses its bundled decoder even if a developer's
+        # machine has an old FINDSBLUR_IJG8C_EXE environment override.
         decoder = bundled_decoder
     else:
         decoder = (

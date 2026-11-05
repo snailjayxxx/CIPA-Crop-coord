@@ -10,3 +10,7 @@ dist/
 *-Windows-ready.zip
 .venv-blur-build/
 .integration_assets/
+
+# Generated native IJG8c decoder and local CalcDebug artifacts (never upload).
+vendor/findsblur_v131/_work/
+CalcDebug/

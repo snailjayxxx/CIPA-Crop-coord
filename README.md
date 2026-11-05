@@ -139,56 +139,16 @@ python -m pytest
 ```
 
 
-## 开发中：① 相似区域裁切 → 可选 FindsBlur 抖动量计算
+## 完整整合版（单一仓库，FindsBlur v1.3.1）
 
-**状态：独立开发分支，尚未合并 main；不是正式版。独立的 CIPA-Calc 仓库及程序不做任何修改。**
+> **开发分支 / Draft PR #7：尚未合并 main。** 此仓库现在自带 FindsBlur 还原计算源代码，后续下载不需要访问第二个私有 GitHub 仓库，也不需要离线合并两个 ZIP。
 
-- 在「文件位置」底部增加「抖动量计算结果输出」（日本語：ブレ量計算結果出力），复选框默认关闭。关闭时完全沿用现有裁切流程。
-- 勾选后可填写/选择 TXT 输出路径（默认建议为裁切输出文件夹中的 `FindsBlur_Result.txt`），已有文件覆盖前弹出确认。
-- 裁切并行线程与抖动量计算并行线程分别设置；计算线程 **1～4，默认 2**，不会改变裁切的并行数。
-- **成功保存 16 张裁切图片**之后才启动计算，后续裁切与计算可并行进行；计算队列处理完全部成功裁切的图片后才宣告整个任务完成。最终成功裁切不足 16 张时，不创建新的 TXT。
-- 计算输出按照源图遍历顺序排列（不是裁切线程完成顺序），每张实际尝试计算的图片保留一行「裁切后文件名 + 四个数值」；失败保留日文失败行，并另写 `_errors.txt`。裁切图片本身不受计算失败影响。
-- **仅使用本地已还原的 FindsBlur 计算核心和 IJG 8c 解码器**。计算核心在独立的私有 `snailjayxxx/CIPA-Calc` 仓库中，本公开仓库只包含调用桥接代码，**不包含**原版商业 EXE、私有计算源码、个人照片或计算结果。
-- **FindsBlur v1.3.1（基线 `CIPA-Calc/main@09815ec8`）**：使用新版原生标记选择修正（`0x402B00`）以及解码器隐藏 CMD 窗口的修复。默认工作模式不改变四列 TXT 格式。
-- **可选 CalcDebug**：仅在勾选抖动量计算后提供另一项复选框和文件夹选择。默认关闭，路径留空时使用 TXT 旁的 `CalcDebug` 文件夹。启用后记录每张计算图片的中间图（最多 20 个处理阶段的无损 PNG，另有原始 RGB 参考、彩色辅助图）和诊断 JSON。失败时只留下实际执行过的步骤。
-- **CalcDebug 按运行分组**：因为裁切和计算同时进行，集成版分批调用不修改的 `standalone_gui.core.calculate()`；每次裁切任务会生成一个 `crop_calcdebug_*` 文件夹，内部包含原生 CalcDebug 批次 session，以及 `crop_pipeline_manifest.json` 汇总，便于回溯。
-- 诊断 PNG 可能包含裁切图片原始像素和本地文件路径；**仅保存在本机，严禁上传到公开仓库**。未勾选 CalcDebug 不增加相关输出。
+- **源码位置**：`vendor/findsblur_v131/`，基线 `snailjayxxx/CIPA-Calc@09815ec8538b3410ba7c28adfc6a6bf6b6ba30d7`。独立计算仓库不改动；未包含原版商业 EXE、用户照片、RAW 或逆向证据文件。
+- **一个来源下载**：直接下载本仓库的整合分支 ZIP；编译后的集成 EXE 位于本仓库 **Actions → Build CIPA Crop + FindsBlur v1.3.1 (Integrated Windows EXE)** 的成功运行附件中。
+- **一体化构建**：Windows CI 使用仓库内 C 代码与 IJG 官方 v8c 源码编译解码器，安装依赖，并打包 **包含计算核心的单文件 EXE**。不需要克隆 CIPA-Calc，也不用登录第二个仓库。
+- **裁切触发计算**：默认不勾选、成功保存至少 16 张裁切图才启动；并行计算 1～4 与裁切线程分开设置，全部计算后完成。可选 CalcDebug 输出。
+- **本地构建**：若要在 Windows 本机手动打包，可运行 `build_windows_with_blur.bat`；需事先编译 IJG 8c 解码器，或直接使用本仓库 Actions 自动打包的 EXE。
+- **验收限制**：合成图/自动化检查只能证明执行链路可用。正式发布前仍需官方 EXE 的 110/113 张参考结果数值对照，未验证前不合并 main，不冒充官方一致。
 
-### Windows 本地集成构建
+**下载源码分支 ZIP**：https://github.com/snailjayxxx/CIPA-Crop-coord/archive/refs/heads/feature/match-crop-findblur-pipeline-20261105.zip
 
-开发机器必须已有 `CIPA-Calc` 私有仓库的本地检出以及本机编译的 `_work\\IJG8c\\bin\\ijg8c_rgb_probe.exe`，使用 Python 3.11，在本仓库根目录执行：
-
-```bat
-set "CIPA_CALC_ROOT=E:\\MyCIPA\\CIPA-Calc"
-rem 可选：set "FINDSBLUR_IJG8C_EXE=C:\\path\\ijg8c_rgb_probe.exe"
-build_windows_with_blur.bat
-```
-
-构建脚本首先只读检查本地 CIPA-Calc 是否至少具备 v1.3.1 API（`calcdebug_root`、`_decoder_creationflags`），再执行测试、打包，并检查生成的单文件 EXE 归档**确实包含** `standalone_gui/calcdebug.py`、计算核心、`phase12` 算法文件和 IJG8c 解码器；缺失会直接报错，绝不误报“集成成功”。构建脚本不更改、不上传 CIPA-Calc 的任何文件。
-
-若本地缺少编译好的 IJG8c 解码器，可从私有 CIPA-Calc 的 [v1.3.1 Windows CI 附件](https://github.com/snailjayxxx/CIPA-Calc/actions/runs/41949794737) 下载完整 ZIP，解压后使用 `FindsBlur_Standalone/_internal/_work/IJG8c/bin/ijg8c_rgb_probe.exe` 作为 `FINDSBLUR_IJG8C_EXE`，**不能只复制最外层 Standalone.exe**。
-
-常规 `build_windows.bat` 和公开 GitHub Actions 构建仍是**裁切功能构建**，不包含私有计算核心；因此，使用这类 EXE 勾选计算选项会提示计算核心不可用。
-
-### 一键获取私有计算源和解码器并在 Windows 本机打包
-
-如果本机安装了 Git、[GitHub CLI](https://cli.github.com/) 和 Python 3.12（或 3.11），且 GitHub 账号有私有 `snailjayxxx/CIPA-Calc` 访问权限，可以简化为：
-
-```powershell
-gh auth login
-git clone --branch feature/match-crop-findblur-pipeline-20261105 https://github.com/snailjayxxx/CIPA-Crop-coord.git
-cd CIPA-Crop-coord
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build_windows_with_blur_autofetch.ps1
-```
-
-`build_windows_with_blur_autofetch.ps1` 在本机寻找（或用已登录的 `gh` 私下克隆）`CIPA-Calc/main`，若没有编译好的 IJG8c 解码器，则通过 `gh run download` 获取私有 FindsBlur v1.3.1 CI 工件并解压。随后执行受版本检查和 PyInstaller 归档检查保护的 `build_windows_with_blur.bat`，并在新生成的单文件 EXE 中使用 `--self-test-integrated` 以一张合成 JPEG 真实测试内置解码器、CalcDebug 清单与 TXT 输出（该自检不证明与官方数值完全一致），最后生成：
-
-```text
-CIPA-Crop-coord/dist/CIPA-Crop-Coord.exe
-```
-
-**这是个人电脑上的集成 EXE 构建流程；它不会上传私人计算代码、CalcDebug PNG 或源照片。** 不要将 `.integration_assets`、`.venv-blur-build`、`dist` 等内容上传到公共仓库（已加入忽略）。下载私有计算源只发生在 Windows 本机，本仓库 GitHub Actions 不执行该步骤，因此公开 Actions 的 EXE **不是**计算集成版。
-
-请特别注意：当前对话运行在非 Windows 环境，无法直接验证该集成 EXE 的 Windows 运行和官方计算结果，源代码集成及模拟测试成功不等于正式验收成功。
-
-**验收边界：** 目前完成的是工作流整合代码，不代表 FindsBlur 还原算法已与官方 EXE 全面数值一致。必须在 Windows 本机使用官方样本进行 15/16/17 张门槛测试、取消、JPEG 保存质量 100%、中日英语言切换、独立线程 1～4、113 张及 110 张官方 TXT 对比，以及集成 EXE 运行验证。通过前不合并 main、不发布正式版。
