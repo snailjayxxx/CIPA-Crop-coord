@@ -5,6 +5,7 @@ decoder are provided at local build time, not copied into this public repo.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -35,6 +36,7 @@ class BlurResult:
     cancelled: bool
     error: str = ""
     errors_path: str = ""
+    calcdebug_path: str = ""
 
 
 def load_calculator():
@@ -118,12 +120,20 @@ class BlurPipeline:
         cancel: Callable[[], bool] | None = None,
         lang: str = "zh",
         backend=None,
+        calcdebug_root: str | Path | None = None,
     ):
         if not 1 <= int(workers) <= MAX_CALC_WORKERS:
             raise ValueError("抖动量计算并行数必须在 1～4 之间。")
         self.output = Path(output).expanduser().resolve()
         if self.output.suffix.lower() != ".txt":
             raise ValueError("抖动量计算结果必须是 .txt 文件。")
+        self.calcdebug_root = (
+            Path(calcdebug_root).expanduser().resolve()
+            if calcdebug_root is not None else None
+        )
+        if self.calcdebug_root is not None:
+            if self.calcdebug_root == self.output or self.calcdebug_root.is_file():
+                raise ValueError("CalcDebug 保存位置必须是文件夹，不能使用 TXT 文件路径。")
         self.workers = int(workers)
         self.expected = max(0, int(expected))
         self.progress = progress
@@ -149,6 +159,8 @@ class BlurPipeline:
         self._lines: dict[int, str] = {}
         self._failures: list[tuple[str, str]] = []
         self._errors_path = ""
+        self._debug_run_path = ""
+        self._debug_sessions: list[str] = []
 
     def start(self):
         self._thread.start()
@@ -177,6 +189,7 @@ class BlurPipeline:
             cancelled=self._cancelled,
             error=self._error,
             errors_path=self._errors_path,
+            calcdebug_path=self._debug_run_path,
         )
 
     def _emit(self, completed: int, detail: str):
@@ -214,6 +227,32 @@ class BlurPipeline:
             self._error = f"{type(exc).__name__}: {exc}"
             self._emit(self._attempted, tr(self.lang, "blur_error_line", error=self._error))
         finally:
+            if self._debug_run_path:
+                # Make the many upstream CalcDebug batch sessions discoverable
+                # under one local folder without changing the private engine.
+                manifest = {
+                    "tool": "CIPA Crop & Coord / FindsBlur CalcDebug",
+                    "output_txt": str(self.output),
+                    "saved_crops": self._queued,
+                    "images_attempted": self._attempted,
+                    "images_successful": self._successful,
+                    "images_failed": self._failed,
+                    "cancelled": self._cancelled,
+                    "error": self._error,
+                    "calcdebug_sessions": self._debug_sessions,
+                    "result_filenames": [
+                        self._lines[i].split(" ", 1)[0]
+                        for i in sorted(self._lines)
+                    ],
+                    "raw_images_uploaded": False,
+                }
+                try:
+                    _atomic_write(
+                        Path(self._debug_run_path) / "crop_pipeline_manifest.json",
+                        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                    )
+                except OSError:
+                    pass
             if self._started and not self._error:
                 # Final progress uses the number of actually saved crops, not
                 # the number of source images that might have failed cropping.
@@ -248,15 +287,28 @@ class BlurPipeline:
                 tr(self.lang, "blur_progress_ok" if ok else "blur_progress_fail", name=filename.name),
             )
 
+        calculation_options = {
+            "workers": self.workers,
+            "progress": on_progress,
+            "cancel": self.cancel,
+            "language": self.lang,
+        }
+        if self.calcdebug_root is not None:
+            if not self._debug_run_path:
+                self.calcdebug_root.mkdir(parents=True, exist_ok=True)
+                self._debug_run_path = tempfile.mkdtemp(
+                    prefix="crop_calcdebug_", dir=self.calcdebug_root
+                )
+            calculation_options["calcdebug_root"] = Path(self._debug_run_path)
         result = self.calculate(
             [path for _, path in batch],
             temp_txt,
             self.decoder,
-            workers=self.workers,
-            progress=on_progress,
-            cancel=self.cancel,
-            language=self.lang,
+            **calculation_options,
         )
+        session_path = getattr(result, "calcdebug_path", None)
+        if session_path is not None:
+            self._debug_sessions.append(str(session_path))
         if not temp_txt.is_file():
             raise RuntimeError("计算核心未生成批次 TXT：" + str(temp_txt))
         lines = temp_txt.read_text(encoding="utf-8-sig").splitlines()
