@@ -181,7 +181,7 @@ cd CIPA-Crop-coord
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build_windows_with_blur_autofetch.ps1
 ```
 
-`build_windows_with_blur_autofetch.ps1` 在本机寻找（或用已登录的 `gh` 私下克隆）`CIPA-Calc/main`，若没有编译好的 IJG8c 解码器，则通过 `gh run download` 获取私有 FindsBlur v1.3.1 CI 工件并解压。随后执行受版本检查和 PyInstaller 归档检查保护的 `build_windows_with_blur.bat`，生成：
+`build_windows_with_blur_autofetch.ps1` 在本机寻找（或用已登录的 `gh` 私下克隆）`CIPA-Calc/main`，若没有编译好的 IJG8c 解码器，则通过 `gh run download` 获取私有 FindsBlur v1.3.1 CI 工件并解压。随后执行受版本检查和 PyInstaller 归档检查保护的 `build_windows_with_blur.bat`，并在新生成的单文件 EXE 中使用 `--self-test-integrated` 以一张合成 JPEG 真实测试内置解码器、CalcDebug 清单与 TXT 输出（该自检不证明与官方数值完全一致），最后生成：
 
 ```text
 CIPA-Crop-coord/dist/CIPA-Crop-Coord.exe
