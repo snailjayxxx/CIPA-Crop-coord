@@ -60,7 +60,18 @@ def _type(spin, value):
 def _visible_digits_change_when_number_changes(spin) -> None:
     """Pixel-diff is a stronger check than spin.value()/spin.text() alone."""
     assert spin.width() >= 90, "An overly narrow spin box can hide its editor"
-    value1, value2 = (2, 8)
+    low, high = spin.minimum(), spin.maximum()
+    assert high > low
+    # The similarity input is limited to [-1, 1], whereas image dimensions
+    # can exceed 1000. Pick two distinct valid values for every field.
+    if isinstance(spin, QSpinBox):
+        value1 = min(high, max(low, 0))
+        value2 = min(high, value1 + 3)
+    else:
+        value1 = min(high, max(low, 0.0))
+        value2 = min(high, value1 + max(0.25, spin.singleStep()))
+    if value1 == value2:
+        value1, value2 = low, high
     spin.setValue(value1)
     QApplication.processEvents()
     first = spin.grab().toImage()
