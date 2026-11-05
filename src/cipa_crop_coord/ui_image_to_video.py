@@ -110,6 +110,7 @@ class BrowseRow(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         self.edit = QLineEdit()
+        self.edit.setObjectName("cipaTextInput")
         button = QPushButton(txt(lang, "browse"))
         button.clicked.connect(self.browse)
         row.addWidget(self.edit, 1)
