@@ -28,6 +28,12 @@ if not exist "%FINDSBLUR_IJG8C_EXE%" (
 py -3.11 -m venv .venv-blur-build
 if errorlevel 1 goto :error
 call .venv-blur-build\Scripts\activate.bat
+if errorlevel 1 goto :error
+
+rem Verify new v1.3.1 API, CalcDebug, and hidden IJG windows BEFORE packaging.
+python scripts\check_calc_source_v131.py
+if errorlevel 1 goto :error
+
 python -m pip install --upgrade pip
 if errorlevel 1 goto :error
 python -m pip install -r requirements-dev.txt -r requirements-blur.txt
@@ -38,8 +44,10 @@ if errorlevel 1 goto :error
 set "QT_QPA_PLATFORM="
 python -m PyInstaller --noconfirm --clean CIPA-Crop-Coord.spec
 if errorlevel 1 goto :error
+python scripts\verify_integrated_bundle.py dist\CIPA-Crop-Coord.exe
+if errorlevel 1 goto :error
 echo.
-echo Local integrated EXE: dist\CIPA-Crop-Coord.exe
+echo Verified local integrated EXE: dist\CIPA-Crop-Coord.exe
 echo Validate it on Windows with official FindsBlur input/output samples.
 exit /b 0
 
