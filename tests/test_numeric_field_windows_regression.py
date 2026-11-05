@@ -11,7 +11,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QFontInfo, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -77,13 +77,24 @@ def _visible_digits_change_when_number_changes(spin) -> None:
     editor = spin.findChild(QLineEdit)
     spin.setValue(value1)
     QApplication.processEvents()
+    first_text = spin.text()
     first = spin.grab().toImage()
     first_editor = editor.grab().toImage()
     spin.setValue(value2)
     QApplication.processEvents()
+    second_text = spin.text()
     second = spin.grab().toImage()
     second_editor = editor.grab().toImage()
+    assert first_text != second_text, "Spinbox did not update its text after value change"
     assert first.size() == second.size()
+    if not QFontInfo(editor.font()).family():
+        # On Windows GitHub Actions with QT_QPA_PLATFORM=offscreen, Qt's
+        # QFontInfo resolves to an empty family and even a *plain native
+        # QLineEdit* paints every ASCII digit as the same tofu rectangle.
+        # Pixel comparisons are meaningless in that environment. Continue
+        # to check visible geometry, editor.text, actual mouse clicks and
+        # keyboard input. Interactive desktop visual acceptance remains.
+        return
 
     # Inspect the editing part only, excluding the step arrows and border.
     width = max(10, min(90, spin.width() - 23))
