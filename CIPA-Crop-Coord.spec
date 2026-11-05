@@ -44,10 +44,12 @@ if source_env:
             datas.append((str(file), str(file.relative_to(calc_root).parent)))
     binaries.append((str(decoder), "_work/IJG8c/bin"))
     pathex.extend((str(calc_root), str(calc_root / "phase5")))
+    # v1.3.1 adds CalcDebug lossless stage capture and hides IJG console
+    # windows. These are loaded from the private CIPA-Calc checkout only.
     hiddenimports.extend((
         "standalone_gui.core", "standalone_gui.accelerate",
-        "standalone_gui.i18n", "standalone.__main__",
-        "phase12.accelerated_topology",
+        "standalone_gui.calcdebug", "standalone_gui.i18n",
+        "standalone.__main__", "phase12.accelerated_topology",
     ))
     from PyInstaller.utils.hooks import collect_all
 
