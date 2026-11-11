@@ -27,7 +27,7 @@ def test_maximum_8_plus_4_does_not_overcommit_eight_gig_available_memory():
 def test_calc_can_be_deferred_without_disabling_any_result():
     plan = choose_workers(
         8, 4, source_pixels=66_000_000, crop_pixels=66_000_000,
-        calc_enabled=True, available_bytes=8 * GIB, cpu_count=16,
+        calc_enabled=True, available_bytes=6 * GIB, cpu_count=16,
     )
     assert plan.defer_calculation
     assert plan.crop_workers >= 1
