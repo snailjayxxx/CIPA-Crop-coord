@@ -8,6 +8,7 @@ on:
       - "src/cipa_crop_coord/ui_coord_modes.py"
       - "src/cipa_crop_coord/ui_image_to_video.py"
       - "tests/test_numeric_field_windows_regression.py"
+      - "tests/test_match_crop_layout.py"
       - "tests/test_ui_defaults.py"
       - ".github/workflows/numeric-input-windows.yml"
   push:
@@ -17,6 +18,7 @@ on:
       - "src/cipa_crop_coord/ui_coord_modes.py"
       - "src/cipa_crop_coord/ui_image_to_video.py"
       - "tests/test_numeric_field_windows_regression.py"
+      - "tests/test_match_crop_layout.py"
       - "tests/test_ui_defaults.py"
       - ".github/workflows/numeric-input-windows.yml"
   workflow_dispatch:
@@ -45,7 +47,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pytest -vv -s tests/test_ui_defaults.py tests/test_numeric_field_windows_regression.py
+          python -m pytest -vv -s tests/test_ui_defaults.py tests/test_numeric_field_windows_regression.py tests/test_match_crop_layout.py
           if ($LASTEXITCODE -ne 0) { throw "Numeric UI validation failed: no EXE should be published" }
 
       - name: Probe standard Windows fonts if offscreen painting fails
