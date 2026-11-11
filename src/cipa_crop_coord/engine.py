@@ -13,6 +13,8 @@ from PIL import Image
 from .locales import tr
 from .blur_pipeline import BlurPipeline, DEFAULT_CALC_WORKERS, MIN_CALC_IMAGES
 from . import blur_pipeline as blur_runtime
+from . import memory_guard
+from .crash_diagnostics import record_worker_plan
 
 EXT={".jpg",".jpeg",".png",".bmp",".tif",".tiff",".webp"}
 DEFAULT_SEARCH_MASK=100/6
@@ -46,6 +48,7 @@ class Summary:
     blur_requested:bool=False; blur_output:str=""; blur_queued:int=0
     blur_attempted:int=0; blur_succeeded:int=0; blur_failed:int=0
     blur_skipped_minimum:bool=False; blur_cancelled:bool=False; blur_error:str=""; blur_errors_path:str=""; blur_calcdebug_path:str=""
+    safety_note:str=""; effective_crop_workers:int=0; effective_calc_workers:int=0; deferred_calculation:bool=False
 
 
 def images(folder,exclude:Iterable=(),lang="zh"):
@@ -173,7 +176,54 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
     if blur_output and blur_calcdebug_root:
         exclusions.append(blur_calcdebug_root)
     fs=images(input_folder,exclusions,lang)
-    prep=prepare(sample,settings.template_rect,settings.edge_mask,lang); Path(output_folder).mkdir(parents=True,exist_ok=True); alloc=Allocator(output_folder); s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
+    prep=prepare(sample,settings.template_rect,settings.edge_mask,lang)
+    # Estimate only image dimensions (no decoded source buffers) before starting
+    # either thread pool. Treat the requested counts as upper limits.
+    plan = None
+    if fs:
+        try:
+            plan = memory_guard.choose_workers(
+                workers, blur_workers,
+                source_pixels=memory_guard.largest_image_pixels(fs),
+                crop_pixels=prep.full_w * prep.full_h,
+                calc_enabled=bool(blur_output),
+                calc_debug=bool(blur_calcdebug_root),
+                crop_debug=debug,
+            )
+        except memory_guard.MemoryBudgetError as exc:
+            raise RuntimeError(tr(
+                lang, "memory_insufficient",
+                available=exc.available / memory_guard.GIB,
+                needed=exc.required / memory_guard.GIB,
+            )) from exc
+    Path(output_folder).mkdir(parents=True,exist_ok=True)
+    alloc=Allocator(output_folder)
+    s=Summary(len(fs),output_path=str(output_folder),debug_path=str(dbg) if debug else "")
+    s.effective_crop_workers = plan.crop_workers if plan else workers
+    s.effective_calc_workers = plan.calc_workers if plan else (blur_workers if blur_output else 0)
+    s.deferred_calculation = bool(plan and plan.defer_calculation)
+    if plan:
+        record_worker_plan(
+            selected_images=len(fs), source_pixels=plan.source_pixels,
+            crop_pixels=plan.crop_pixels, requested_crop=workers,
+            actual_crop=plan.crop_workers,
+            requested_calc=blur_workers if blur_output else 0,
+            actual_calc=plan.calc_workers,
+            available_gib=round(plan.available_bytes / memory_guard.GIB, 2)
+            if plan.available_bytes is not None else None,
+            deferred=plan.defer_calculation,
+        )
+    if plan and plan.adjusted:
+        key = "memory_workers_adjusted" if plan.available_bytes is not None else "memory_workers_unknown"
+        note = tr(
+            lang, key,
+            requested_crop=workers, requested_calc=blur_workers if blur_output else 0,
+            actual_crop=plan.crop_workers, actual_calc=plan.calc_workers,
+            available=(plan.available_bytes or 0) / memory_guard.GIB,
+        )
+        if plan.defer_calculation:
+            note += "\n" + tr(lang, "memory_calc_deferred")
+        s.safety_note = note
     # Do not spend minutes cropping 100+ photos before discovering that the
     # requested FindsBlur backend cannot be loaded. Import/decoder preflight
     # occurs BEFORE the first crop, while actual measurement still begins
@@ -184,12 +234,13 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
         if blur_output and fs else None
     )
     blur = BlurPipeline(
-        blur_output, workers=blur_workers, expected=len(fs),
+        blur_output, workers=s.effective_calc_workers, expected=len(fs),
         progress=blur_progress, cancel=cancel, lang=lang,
         calcdebug_root=blur_calcdebug_root, backend=blur_backend,
+        defer_until_finish=s.deferred_calculation,
     ) if blur_output else None
     if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
-    if progress: progress(0, len(fs), "")
+    if progress: progress(0, len(fs), s.safety_note)
     if blur_progress and blur: blur_progress(0, len(fs), "")
     if blur:
         s.blur_requested = True
@@ -207,7 +258,7 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
             return i,tr(lang,"ok_score",score=m.score,name=p.name),("ok",None)
         except Exception as e:return i,tr(lang,"fail",name=p.name,error=e),("fail",None)
     try:
-        rs = parallel(fs,one,workers,progress,cancel)
+        rs = parallel(fs,one,s.effective_crop_workers,progress,cancel)
     finally:
         # The crop task does not finish until all queued calculations finish.
         blur_result = blur.finish() if blur else None

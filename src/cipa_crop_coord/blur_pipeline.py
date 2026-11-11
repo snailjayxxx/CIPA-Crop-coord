@@ -157,6 +157,7 @@ class BlurPipeline:
         lang: str = "zh",
         backend=None,
         calcdebug_root: str | Path | None = None,
+        defer_until_finish: bool = False,
     ):
         if not 1 <= int(workers) <= MAX_CALC_WORKERS:
             raise ValueError("抖动量计算并行数必须在 1～4 之间。")
@@ -175,6 +176,7 @@ class BlurPipeline:
         self.progress = progress
         self.cancel = cancel
         self.lang = lang
+        self.defer_until_finish = bool(defer_until_finish)
         # Preflight the calculator before cropping whenever inputs exist.
         # Missing computation dependencies must not prevent cropping.
         self.calculate, self.decoder = backend if backend is not None else (None, None)
@@ -255,7 +257,10 @@ class BlurPipeline:
                     pending.append(item)
                     # First 4 saved crops open the pipeline; afterwards, smaller
                     # batches allow calculation to overlap ongoing crop tasks.
-                    required = MIN_CALC_IMAGES if not self._started else max(1, self.workers)
+                    required = (
+                        (self.expected + 1 if self.defer_until_finish else MIN_CALC_IMAGES)
+                        if not self._started else max(1, self.workers)
+                    )
                     if len(pending) >= required:
                         self._started = True
                         self._process(pending, Path(folder))

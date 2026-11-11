@@ -6,5 +6,7 @@ if __name__ == "__main__":
     if "--self-test-integrated" in sys.argv:
         from cipa_crop_coord.integrated_self_test import self_test_integrated
         raise SystemExit(self_test_integrated())
+    from cipa_crop_coord.crash_diagnostics import start_logging
+    start_logging()
     from cipa_crop_coord.app import main
     raise SystemExit(main())

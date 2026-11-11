@@ -149,6 +149,8 @@ python -m pytest
 - **一个来源下载**：通过 [GitHub Releases](https://github.com/snailjayxxx/CIPA-Crop-coord/releases/latest) 下载包含裁切与 FindsBlur 计算功能的 `CIPA-Crop-Coord.exe`。
 - **一体化构建**：Windows CI 使用仓库内 C 代码与 IJG 官方 v8c 源码编译解码器，安装依赖，并打包 **包含计算核心的单文件 EXE**。不需要克隆 CIPA-Calc，也不用登录第二个仓库。
 - **裁切触发计算**：默认不勾选；启用后成功保存第 4 张裁切图即开始计算，如果本批仅有 1～3 张成功裁切，则在裁切完成后计算；没有成功裁切图片则跳过。计算并行线程 1～4 独立设置，全部计算后完成。可选 CalcDebug 输出。
+- **高并发保护（测试版）**：对 8 裁切 + 4 计算的最大设置，根据图片像素和启动时可用 RAM 自动限制实际工作线程；必要时裁切完成后才开始计算。数字控件保留用户的请求值，运行日志显示实际工作线程数。内存过低时在开始前报错，避免系统直接退出。此防护不能代替 Windows 真实照片压力测试。
+- **本机故障日志**：EXE 运行时将崩溃堆栈和线程计划记录在 `%LOCALAPPDATA%\\CIPA-Crop-Coord\\logs\\runtime.log`，不会上传图片或日志；系统强制终止程序时可能无法写入最后一条堆栈。
 - **本地构建**：若要在 Windows 本机手动打包，可运行 `build_windows_with_blur.bat`；需事先编译 IJG 8c 解码器，或直接使用本仓库 Actions 自动打包的 EXE。
 - **验收限制**：用户 Windows 实际运行验收与合成图/CI 自检通过，不代表官方 EXE 的 110/113 张参考结果已经完成逐项数值一致性对照；对此不冒充官方一致。
 

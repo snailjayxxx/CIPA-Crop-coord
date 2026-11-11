@@ -212,3 +212,20 @@ def test_calcdebug_warnings_are_kept_even_if_numeric_txt_succeeds(tmp_path):
         encoding="utf-8"
     )
     assert len((tmp_path / "numeric.txt").read_text(encoding="utf-8").splitlines()) == 16
+
+
+
+def test_deferred_pipeline_does_not_require_four_images(tmp_path):
+    calls = []
+    pipeline = BlurPipeline(
+        tmp_path / "safe-short.txt", workers=1, expected=2,
+        defer_until_finish=True, backend=_backend(calls),
+    )
+    pipeline.start()
+    pipeline.submit(1, tmp_path / "b.jpg")
+    pipeline.submit(0, tmp_path / "a.jpg")
+    result = pipeline.finish()
+    assert not result.below_minimum
+    assert result.successful == 2
+    assert [batch[0] for batch in calls] == [2]
+    assert (tmp_path / "safe-short.txt").read_text(encoding="utf-8").splitlines()[0].startswith("a.jpg ")

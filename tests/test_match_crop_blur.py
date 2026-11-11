@@ -105,9 +105,13 @@ def test_match_crop_streams_to_calc_only_when_selected(tmp_path, monkeypatch):
     assert summary.blur_queued == summary.blur_attempted == 17
     assert summary.blur_succeeded == 17
     assert summary.blur_failed == 0
-    assert calls[0] == (4, 4)
+    assert calls[0] == (4, summary.effective_calc_workers)
     assert sum(batch_size for batch_size, _ in calls) == 17
-    assert all(1 <= batch_size <= 4 and workers == 4 for batch_size, workers in calls)
+    assert 1 <= summary.effective_calc_workers <= 4
+    assert all(
+        1 <= batch_size <= 4 and workers == summary.effective_calc_workers
+        for batch_size, workers in calls
+    )
     assert len(target.read_text(encoding="utf-8").splitlines()) == 17
 
 
@@ -142,7 +146,8 @@ def test_match_crop_routes_calcdebug_to_new_core_without_affecting_txt(tmp_path,
     )
     assert summary.succeeded == 17
     assert summary.blur_succeeded == 17
-    assert calls[0] == (4, 3)
+    assert calls[0] == (4, summary.effective_calc_workers)
+    assert 1 <= summary.effective_calc_workers <= 3
     assert sum(batch_size for batch_size, _ in calls) == 17
     assert all(1 <= batch_size <= 4 for batch_size, _ in calls)
     assert len(txt_path.read_text(encoding="utf-8").splitlines()) == 17
@@ -247,3 +252,61 @@ def test_calc_launches_after_four_saved_files_before_finish(tmp_path):
         result = pipeline.finish()
     assert calls == [4, 2]
     assert result.attempted == 6
+
+
+
+def test_full_worker_request_is_throttled_without_changing_txt(tmp_path, monkeypatch):
+    from cipa_crop_coord import memory_guard
+    calls = []
+    monkeypatch.setattr(blur_pipeline, "load_calculator", lambda: _fake_backend(calls))
+    # Simulate 66MP input metadata without allocating actual 66MP image arrays.
+    monkeypatch.setattr(memory_guard, "largest_image_pixels", lambda files: 66_000_000)
+    monkeypatch.setattr(memory_guard, "available_memory_bytes", lambda: 6 * memory_guard.GIB)
+    sample, sources = _make_samples(tmp_path, 9)
+    lines = []
+    destination = tmp_path / "safe.txt"
+    summary = match_crop(
+        sample, sources, tmp_path / "out",
+        MatchSettings(edge_mask=0, search_mask=0, threshold=-1, coarse=180),
+        workers=8, blur_output=destination, blur_workers=4,
+        progress=lambda current, total, message: lines.append(message),
+    )
+    assert summary.succeeded == summary.blur_succeeded == 9
+    assert 1 <= summary.effective_crop_workers < 8
+    assert 1 <= summary.effective_calc_workers <= 4
+    assert summary.safety_note and summary.safety_note in lines
+    assert len(destination.read_text(encoding="utf-8").splitlines()) == 9
+    assert sum(batch_size for batch_size, _ in calls) == 9
+
+
+def test_deferred_calculation_does_not_start_before_crop_finish(tmp_path):
+    from threading import Event
+    started = Event()
+
+    def calculate(images, output, decoder, *, workers, progress, cancel, language,
+                  calcdebug_root=None):
+        started.set()
+        output.write_text(
+            "".join(f"{path.name} 1 2 3 4\n" for path in images),
+            encoding="utf-8",
+        )
+        for i, path in enumerate(images, 1):
+            progress(i, len(images), path, True, "ok")
+        return SimpleNamespace(
+            completed=len(images), successful=len(images),
+            failures=(), cancelled=False, calcdebug_path=None,
+        )
+
+    pipeline = blur_pipeline.BlurPipeline(
+        tmp_path / "deferred.txt",
+        workers=1, expected=6, defer_until_finish=True,
+        backend=(calculate, Path("fake_decoder.exe")),
+    )
+    pipeline.start()
+    for index in range(6):
+        pipeline.submit(index, tmp_path / f"{index:03d}.jpg")
+    assert not started.wait(timeout=0.15), "RAM guard must defer computation"
+    result = pipeline.finish()
+    assert started.is_set()
+    assert result.attempted == 6
+    assert len((tmp_path / "deferred.txt").read_text(encoding="utf-8").splitlines()) == 6
