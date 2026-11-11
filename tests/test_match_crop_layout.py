@@ -86,8 +86,9 @@ def test_crop_worker_alignment_and_debug_after_worker():
     app = _app()
     from cipa_crop_coord.ui import MatchTab
     for lang in ("ja", "zh", "en"):
+      for width in (940, 1180):
         tab = MatchTab(lang)
-        tab.resize(1180, 760)
+        tab.resize(width, 760)
         tab.show()
         app.processEvents()
         try:
@@ -109,6 +110,8 @@ def test_crop_worker_alignment_and_debug_after_worker():
             ) < 12
             assert abs(left(tab.calcdebug_folder) - left(tab.blur_file)) <= 2
             assert tab.calcdebug_folder_label.text() == tr(lang, "calcdebug_folder")
+            assert left(tab.debug) + tab.debug.width() <= tab.width()
+            assert left(tab.calcdebug_enabled) + tab.calcdebug_enabled.width() <= tab.width()
             # Folder location is unchanged, and its activation still follows
             # both the blur-calculation and CalcDebug switches.
             assert not tab.calcdebug_enabled.isEnabled()

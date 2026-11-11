@@ -918,7 +918,9 @@ class MatchTab(BatchTab):
         super().__init__(lang)
         paths = QGroupBox(tr(lang, "paths"))
         form = QFormLayout(paths)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        # Keep both worker rows on the same form column; WrapLongRows
+        # unpredictably wrapped just one row when CalcDebug was moved inline.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
         self.sample = PathChooser(lang, "file")
         self.input = PathChooser(lang, "folder")
         self.output = PathChooser(lang, "folder")
