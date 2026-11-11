@@ -950,8 +950,12 @@ class MatchTab(BatchTab):
         calc_options = QHBoxLayout()
         calc_options.setSpacing(10)
         self.calc_workers_label = QLabel(tr(lang, "blur_calc_threads"))
+        self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
+        self.calcdebug_enabled.setToolTip(tr(lang, "calcdebug_tip"))
         calc_options.addWidget(self.calc_workers_label)
         calc_options.addWidget(self.blur_workers)
+        calc_options.addSpacing(10)
+        calc_options.addWidget(self.calcdebug_enabled)
         calc_options.addStretch()
         # Matching label and spinbox widths put both controls on the same X-axis
         # for all languages, including their different-length Japanese labels.
@@ -966,11 +970,12 @@ class MatchTab(BatchTab):
         self.blur_workers.setFixedWidth(spin_width)
         form.addRow("", calc_options)
 
-        self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
-        self.calcdebug_enabled.setToolTip(tr(lang, "calcdebug_tip"))
+        # Keep CalcDebug's folder picker on the original separate row;
+        # only the enable checkbox has moved beside the calc worker spinbox.
         self.calcdebug_folder = PathChooser(lang, "folder")
         self.calcdebug_folder.setToolTip(tr(lang, "calcdebug_tip"))
-        form.addRow(self.calcdebug_enabled, self.calcdebug_folder)
+        self.calcdebug_folder_label = QLabel(tr(lang, "calcdebug_folder"))
+        form.addRow(self.calcdebug_folder_label, self.calcdebug_folder)
         self._suggested_crop_path = ""
         self._suggested_blur_path = ""
         self.input.edit.textChanged.connect(self.suggest_crop_path)

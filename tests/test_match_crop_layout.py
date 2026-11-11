@@ -97,10 +97,28 @@ def test_crop_worker_alignment_and_debug_after_worker():
             assert abs(left(tab.crop_workers_label) - left(tab.calc_workers_label)) <= 2
             assert abs(left(tab.workers) - left(tab.blur_workers)) <= 2
             assert left(tab.debug) >= left(tab.workers) + tab.workers.width()
+            assert abs(left(tab.calcdebug_enabled) - left(tab.debug)) <= 2
+            assert left(tab.calcdebug_enabled) >= left(tab.blur_workers) + tab.blur_workers.width()
             assert abs(
                 tab.debug.mapTo(tab, QPoint(0, 0)).y()
                 - tab.workers.mapTo(tab, QPoint(0, 0)).y()
             ) < 12
+            assert abs(
+                tab.calcdebug_enabled.mapTo(tab, QPoint(0, 0)).y()
+                - tab.blur_workers.mapTo(tab, QPoint(0, 0)).y()
+            ) < 12
+            assert abs(left(tab.calcdebug_folder) - left(tab.blur_file)) <= 2
+            assert tab.calcdebug_folder_label.text() == tr(lang, "calcdebug_folder")
+            # Folder location is unchanged, and its activation still follows
+            # both the blur-calculation and CalcDebug switches.
+            assert not tab.calcdebug_enabled.isEnabled()
+            assert not tab.calcdebug_folder.isEnabled()
+            tab.blur_enabled.setChecked(True)
+            assert tab.calcdebug_enabled.isEnabled()
+            tab.calcdebug_enabled.setChecked(True)
+            assert tab.calcdebug_folder.isEnabled()
+            tab.calcdebug_enabled.setChecked(False)
+            assert not tab.calcdebug_folder.isEnabled()
         finally:
             tab.close()
 
