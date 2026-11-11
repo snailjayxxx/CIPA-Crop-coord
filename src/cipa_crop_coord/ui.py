@@ -729,7 +729,15 @@ class BatchTab(QWidget):
         self.progress.setFormat("0/0")
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(130)
+        # Display nine text lines without expanding into a large empty area.
+        # The entire history stays in the document and remains scrollable.
+        self.log.setFixedHeight(
+            9 * self.log.fontMetrics().lineSpacing()
+            + int(2 * self.log.document().documentMargin())
+            + 2 * self.log.frameWidth()
+            + 12
+        )
+        self.log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.debug = QCheckBox(tr(lang, "debug"))
         self.debug.setToolTip(tr(lang, "debug_tip"))
         self.workers = manual_number(QSpinBox())
@@ -752,7 +760,7 @@ class BatchTab(QWidget):
             options.addWidget(self.workers)
             self.content.addLayout(options)
         self.content.addWidget(self.progress)
-        self.content.addWidget(self.log, 1)
+        self.content.addWidget(self.log)
         buttons = QHBoxLayout()
         buttons.addStretch()
         buttons.addWidget(self.cancel)
@@ -918,12 +926,16 @@ class MatchTab(BatchTab):
         form.addRow(tr(lang, "input"), self.input)
         form.addRow(tr(lang, "output"), self.output)
 
-        # Put the crop-only controls below the crop output location.
+        # Keep crop thread count next to its Debug checkbox, aligned with
+        # the calculation-thread row under the calculation TXT path.
         crop_options = QHBoxLayout()
+        crop_options.setSpacing(10)
+        self.crop_workers_label = QLabel(tr(lang, "crop_threads"))
+        crop_options.addWidget(self.crop_workers_label)
+        crop_options.addWidget(self.workers)
+        crop_options.addSpacing(10)
         crop_options.addWidget(self.debug)
         crop_options.addStretch()
-        crop_options.addWidget(QLabel(tr(lang, "crop_threads")))
-        crop_options.addWidget(self.workers)
         form.addRow("", crop_options)
 
         self.blur_enabled = QCheckBox(tr(lang, "blur_output"))
@@ -936,9 +948,22 @@ class MatchTab(BatchTab):
         self.blur_workers.setMinimumWidth(95)
         self.blur_workers.setToolTip(tr(lang, "blur_threads_tip"))
         calc_options = QHBoxLayout()
-        calc_options.addWidget(QLabel(tr(lang, "blur_calc_threads")))
+        calc_options.setSpacing(10)
+        self.calc_workers_label = QLabel(tr(lang, "blur_calc_threads"))
+        calc_options.addWidget(self.calc_workers_label)
         calc_options.addWidget(self.blur_workers)
         calc_options.addStretch()
+        # Matching label and spinbox widths put both controls on the same X-axis
+        # for all languages, including their different-length Japanese labels.
+        label_width = max(
+            self.crop_workers_label.sizeHint().width(),
+            self.calc_workers_label.sizeHint().width(),
+        )
+        self.crop_workers_label.setFixedWidth(label_width)
+        self.calc_workers_label.setFixedWidth(label_width)
+        spin_width = max(100, self.workers.sizeHint().width(), self.blur_workers.sizeHint().width())
+        self.workers.setFixedWidth(spin_width)
+        self.blur_workers.setFixedWidth(spin_width)
         form.addRow("", calc_options)
 
         self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
@@ -946,7 +971,9 @@ class MatchTab(BatchTab):
         self.calcdebug_folder = PathChooser(lang, "folder")
         self.calcdebug_folder.setToolTip(tr(lang, "calcdebug_tip"))
         form.addRow(self.calcdebug_enabled, self.calcdebug_folder)
+        self._suggested_crop_path = ""
         self._suggested_blur_path = ""
+        self.input.edit.textChanged.connect(self.suggest_crop_path)
         self.output.edit.textChanged.connect(self.suggest_blur_path)
         self.blur_enabled.toggled.connect(self.toggle_blur)
         self.calcdebug_enabled.toggled.connect(self.toggle_calcdebug)
@@ -1011,6 +1038,21 @@ class MatchTab(BatchTab):
     def on_progress(self, current, total, message):
         super().on_progress(current, total, message)
         self.progress.setFormat(f'{tr(self.lang, "crop_progress")}: %v/{total}')
+
+    def suggest_crop_path(self):
+        """Fill <input>/resize on folder selection without overwriting user choices.
+
+        Only update the field if it is empty or still contains the previous
+        automatic suggestion. The directory is created by the crop engine on
+        Start, rather than prematurely when browsing.
+        """
+        source_folder = self.input.text()
+        if not source_folder:
+            return
+        suggested = str(Path(source_folder) / "resize")
+        if not self.output.text() or self.output.text() == self._suggested_crop_path:
+            self.output.edit.setText(suggested)
+        self._suggested_crop_path = suggested
 
     def suggest_blur_path(self):
         folder = self.output.text()
