@@ -17,7 +17,7 @@ from typing import Callable
 
 from .locales import tr
 
-MIN_CALC_IMAGES = 16
+MIN_CALC_IMAGES = 4
 MAX_CALC_WORKERS = 4
 DEFAULT_CALC_WORKERS = 2
 FAILURE_TEXT = "ブレ度合測定に失敗しました。"
@@ -140,7 +140,7 @@ def _atomic_write(path: Path, contents: str):
 
 
 class BlurPipeline:
-    """Start after 16 saved crops, then consume new crops on another thread.
+    """Start after 4 saved crops, then consume new crops on another thread.
 
     The calculation core retains its own independently capped worker pool.
     Results are keyed by original input index, never completion order.
@@ -175,7 +175,7 @@ class BlurPipeline:
         self.progress = progress
         self.cancel = cancel
         self.lang = lang
-        # Resolve the optional private backend only once the 16-image gate opens.
+        # Preflight the calculator before cropping whenever inputs exist.
         # Missing computation dependencies must not prevent cropping.
         self.calculate, self.decoder = backend if backend is not None else (None, None)
         self._queue = Queue()
@@ -231,7 +231,7 @@ class BlurPipeline:
 
     def _emit(self, completed: int, detail: str):
         if self.progress:
-            self.progress(completed, max(self.expected, completed, 1), detail)
+            self.progress(completed, max(self.expected, completed), detail)
 
     def _consume(self):
         pending: list[tuple[int, Path]] = []
@@ -240,18 +240,20 @@ class BlurPipeline:
                 while True:
                     item = self._queue.get()
                     if item is _SENTINEL:
-                        if not self._started:
+                        if self.cancel and self.cancel():
+                            self._cancelled = True
+                        elif pending and not self._error and not self._cancelled:
+                            # One to three crops are processed after cropping ends.
+                            self._started = True
+                            self._process(pending, Path(folder))
+                        elif not self._started and self._queued == 0:
                             self._below_minimum = True
                             self._emit(0, tr(self.lang, "blur_under_min", count=MIN_CALC_IMAGES))
-                        elif self.cancel and self.cancel():
-                            self._cancelled = True
-                        elif pending:
-                            self._process(pending, Path(folder))
                         break
                     if self._cancelled or self._error:
                         continue
                     pending.append(item)
-                    # First 16 saved crops open the pipeline; afterwards, smaller
+                    # First 4 saved crops open the pipeline; afterwards, smaller
                     # batches allow calculation to overlap ongoing crop tasks.
                     required = MIN_CALC_IMAGES if not self._started else max(1, self.workers)
                     if len(pending) >= required:

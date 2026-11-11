@@ -1092,6 +1092,7 @@ class MatchTab(BatchTab):
         self.blur_progress_bar.setRange(0, 1)
         self.blur_progress_bar.setValue(0)
         self.blur_progress_bar.setFormat(f'{tr(self.lang, "calc_progress")}: 0/0')
+        self.request_resize()
         self.start(
             match_crop,
             {

@@ -177,11 +177,11 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
     # Do not spend minutes cropping 100+ photos before discovering that the
     # requested FindsBlur backend cannot be loaded. Import/decoder preflight
     # occurs BEFORE the first crop, while actual measurement still begins
-    # only after the 16th successfully saved photo. Short batches (<16)
-    # still crop normally without requiring the calculation runtime.
+    # after four successful crops, or after crop completion if fewer succeed.
+    # Preflight all nonempty runs, including one- to three-image batches.
     blur_backend = (
         blur_runtime.load_calculator()
-        if blur_output and len(fs) >= MIN_CALC_IMAGES else None
+        if blur_output and fs else None
     )
     blur = BlurPipeline(
         blur_output, workers=blur_workers, expected=len(fs),
@@ -189,6 +189,8 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
         calcdebug_root=blur_calcdebug_root, backend=blur_backend,
     ) if blur_output else None
     if debug:debug_write(dbg/"sample_binary.jpg",prep.binary)
+    if progress: progress(0, len(fs), "")
+    if blur_progress and blur: blur_progress(0, len(fs), "")
     if blur:
         s.blur_requested = True
         s.blur_output = str(blur.output)
