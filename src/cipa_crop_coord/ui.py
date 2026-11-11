@@ -928,17 +928,17 @@ class MatchTab(BatchTab):
         form.addRow(tr(lang, "input"), self.input)
         form.addRow(tr(lang, "output"), self.output)
 
-        # Keep crop thread count next to its Debug checkbox, aligned with
-        # the calculation-thread row under the calculation TXT path.
+        # Form labels occupy the shared label column. Both worker values and
+        # Debug switches occupy the field column, preventing width-dependent
+        # wrapping and clipping in a 940px window.
         crop_options = QHBoxLayout()
         crop_options.setSpacing(10)
         self.crop_workers_label = QLabel(tr(lang, "crop_threads"))
-        crop_options.addWidget(self.crop_workers_label)
         crop_options.addWidget(self.workers)
         crop_options.addSpacing(10)
         crop_options.addWidget(self.debug)
         crop_options.addStretch()
-        form.addRow("", crop_options)
+        form.addRow(self.crop_workers_label, crop_options)
 
         self.blur_enabled = QCheckBox(tr(lang, "blur_output"))
         self.blur_enabled.setToolTip(tr(lang, "blur_tip"))
@@ -954,23 +954,16 @@ class MatchTab(BatchTab):
         self.calc_workers_label = QLabel(tr(lang, "blur_calc_threads"))
         self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
         self.calcdebug_enabled.setToolTip(tr(lang, "calcdebug_tip"))
-        calc_options.addWidget(self.calc_workers_label)
         calc_options.addWidget(self.blur_workers)
         calc_options.addSpacing(10)
         calc_options.addWidget(self.calcdebug_enabled)
         calc_options.addStretch()
-        # Matching label and spinbox widths put both controls on the same X-axis
-        # for all languages, including their different-length Japanese labels.
-        label_width = max(
-            self.crop_workers_label.sizeHint().width(),
-            self.calc_workers_label.sizeHint().width(),
+        spin_width = max(
+            100, self.workers.sizeHint().width(), self.blur_workers.sizeHint().width()
         )
-        self.crop_workers_label.setFixedWidth(label_width)
-        self.calc_workers_label.setFixedWidth(label_width)
-        spin_width = max(100, self.workers.sizeHint().width(), self.blur_workers.sizeHint().width())
         self.workers.setFixedWidth(spin_width)
         self.blur_workers.setFixedWidth(spin_width)
-        form.addRow("", calc_options)
+        form.addRow(self.calc_workers_label, calc_options)
 
         # Keep CalcDebug's folder picker on the original separate row;
         # only the enable checkbox has moved beside the calc worker spinbox.
