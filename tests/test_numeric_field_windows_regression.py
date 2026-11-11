@@ -157,6 +157,8 @@ def test_every_page_numeric_field_has_visible_text_and_editable_controls():
     window = MainWindow()
     try:
         window.a.blur_enabled.setChecked(True)
+        window.a.match_section.toggle_button.setChecked(True)
+        window.a.output_section.toggle_button.setChecked(True)
         window.show()
         app.processEvents()
         found = []
@@ -194,6 +196,8 @@ def test_typing_changes_all_representative_number_formats():
     window = MainWindow()
     try:
         window.a.blur_enabled.setChecked(True)
+        window.a.match_section.toggle_button.setChecked(True)
+        window.a.output_section.toggle_button.setChecked(True)
         window.show()
         app.processEvents()
         cases = [
@@ -233,6 +237,8 @@ def test_numeric_style_and_defaults_work_in_all_languages():
         for lang in ("zh", "ja", "en"):
             tab = MatchTab(lang)
             tab.blur_enabled.setChecked(True)
+            tab.match_section.toggle_button.setChecked(True)
+            tab.output_section.toggle_button.setChecked(True)
             tab.show()
             app.processEvents()
             try:

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import cv2
 import numpy as np
+import pytest
 from PySide6.QtWidgets import QApplication
 
 from cipa_crop_coord import blur_pipeline
@@ -104,7 +105,9 @@ def test_match_crop_streams_to_calc_only_when_selected(tmp_path, monkeypatch):
     assert summary.blur_queued == summary.blur_attempted == 17
     assert summary.blur_succeeded == 17
     assert summary.blur_failed == 0
-    assert calls == [(16, 4), (1, 4)]
+    assert calls[0] == (4, 4)
+    assert sum(batch_size for batch_size, _ in calls) == 17
+    assert all(1 <= batch_size <= 4 and workers == 4 for batch_size, workers in calls)
     assert len(target.read_text(encoding="utf-8").splitlines()) == 17
 
 
@@ -139,17 +142,21 @@ def test_match_crop_routes_calcdebug_to_new_core_without_affecting_txt(tmp_path,
     )
     assert summary.succeeded == 17
     assert summary.blur_succeeded == 17
-    assert [pair[0] for pair in calls] == [16, 1]
+    assert calls[0] == (4, 3)
+    assert sum(batch_size for batch_size, _ in calls) == 17
+    assert all(1 <= batch_size <= 4 for batch_size, _ in calls)
     assert len(txt_path.read_text(encoding="utf-8").splitlines()) == 17
     run_folder = Path(summary.blur_calcdebug_path)
     assert run_folder.is_dir() and run_folder.parent == debug_root
     manifest = json.loads(
         (run_folder / "crop_pipeline_manifest.json").read_text(encoding="utf-8")
     )
-    assert len(manifest["calcdebug_sessions"]) == 2
+    assert len(manifest["calcdebug_sessions"]) == len(calls)
 
 
-def test_matching_skips_existing_calcdebug_pngs_inside_input_root(tmp_path):
+def test_matching_skips_existing_calcdebug_pngs_inside_input_root(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(blur_pipeline, "load_calculator", lambda: _fake_backend(calls))
     sample, sources = _make_samples(tmp_path, 1)
     debug_folder = sources / "CalcDebug"
     debug_folder.mkdir()
@@ -165,5 +172,78 @@ def test_matching_skips_existing_calcdebug_pngs_inside_input_root(tmp_path):
     )
     assert summary.total == 1
     assert summary.succeeded == 1
+    assert summary.blur_succeeded == 1
+    assert calls == [(1, 2)]
+    assert (tmp_path / "result.txt").is_file()
+
+
+@pytest.mark.parametrize("count", (1, 2, 3, 4))
+def test_short_batch_always_generates_calculation_txt(tmp_path, monkeypatch, count):
+    calls = []
+    monkeypatch.setattr(blur_pipeline, "load_calculator", lambda: _fake_backend(calls))
+    sample, sources = _make_samples(tmp_path, count)
+    destination = tmp_path / "result.txt"
+    summary = match_crop(
+        sample, sources, tmp_path / "out",
+        MatchSettings(edge_mask=0, search_mask=0, threshold=-1, coarse=180),
+        blur_output=destination, workers=2,
+    )
+    assert summary.succeeded == count
+    assert summary.blur_queued == summary.blur_attempted == count
+    assert summary.blur_succeeded == count
+    assert not summary.blur_skipped_minimum
+    assert calls == [(count, 2)]
+    assert len(destination.read_text(encoding="utf-8").splitlines()) == count
+
+
+def test_zero_input_does_not_initialize_calculator(tmp_path, monkeypatch):
+    def unavailable():
+        raise AssertionError("zero images must not load calculator")
+    monkeypatch.setattr(blur_pipeline, "load_calculator", unavailable)
+    sample, sources = _make_samples(tmp_path, 0)
+    result = tmp_path / "result.txt"
+    summary = match_crop(
+        sample, sources, tmp_path / "out",
+        MatchSettings(edge_mask=0, search_mask=0, threshold=-1, coarse=180),
+        blur_output=result,
+    )
+    assert summary.blur_queued == summary.blur_attempted == 0
     assert summary.blur_skipped_minimum
-    assert not (tmp_path / "result.txt").exists()
+    assert not result.exists()
+
+
+def test_calc_launches_after_four_saved_files_before_finish(tmp_path):
+    from threading import Event
+    started = Event()
+    calls = []
+
+    def fake_calculate(images, target, decoder, *, workers, progress, cancel, language,
+                       calcdebug_root=None):
+        calls.append(len(images))
+        target.write_text(
+            "".join(f"{path.name} 1 2 3 4\n" for path in images),
+            encoding="utf-8",
+        )
+        for i, path in enumerate(images, 1):
+            progress(i, len(images), path, True, "ok")
+        started.set()
+        return SimpleNamespace(
+            completed=len(images), successful=len(images),
+            failures=(), cancelled=False, calcdebug_path=None,
+        )
+
+    pipeline = blur_pipeline.BlurPipeline(
+        tmp_path / "stream.txt", expected=6,
+        backend=(fake_calculate, Path("fake_decoder.exe")),
+    )
+    pipeline.start()
+    try:
+        for idx in range(4):
+            pipeline.submit(idx, tmp_path / f"crop_{idx}.jpg")
+        assert started.wait(timeout=5), "4 completed crops should start calculation"
+        for idx in range(4, 6):
+            pipeline.submit(idx, tmp_path / f"crop_{idx}.jpg")
+    finally:
+        result = pipeline.finish()
+    assert calls == [4, 2]
+    assert result.attempted == 6

@@ -13,7 +13,7 @@
 
 正式版下载：[GitHub Releases](https://github.com/snailjayxxx/CIPA-Crop-coord/releases/latest)。下载 `CIPA-Crop-Coord.exe` 后即可运行。
 
-> **注意**：当前正式版 Release v6.1.0 仍是旧版裁切功能；包含 FindsBlur v1.3.1 的集成测试版在 [PR #7](https://github.com/snailjayxxx/CIPA-Crop-coord/pull/7) 和相应 Actions 构建中。待官方数值对照验证后，再合并与发布新版。
+> **当前正式版 v6.2.0**：使用 2026-11-11 用户在 Windows 上复测通过的整合版本（基线提交 `70537e4b`）；六个功能页、FindsBlur v1.3.1 计算及其裁切联动统一发布。用户要求保留的内存并发防护开发版在独立分支 `safety/memory-guard-20261111`，**不包含在 v6.2.0 中**。本次发布是用户实际使用验收，尚不等同于官方 FindsBlur EXE 数值逐项一致性认证。
 
 ## 图片生成视频（含 v6.1 补丁）
 
@@ -26,7 +26,7 @@
 - 支持中文、日文文件路径及跨盘保存；取消或写入失败时保留原文件，并清理临时文件。
 - 已修复取消回调的 `is_set` 错误；新增页的界面、覆盖确认、参数错误、编码错误和进度提示支持中、日、英三种语言。
 
-## 当前开发分支：坐标导出双模式
+## 坐标导出模式
 
 - 坐标导出不再复用“相似区域裁切”的识别链路，而是单独采用 `tool_9_calc_chart_center.py` 的模板匹配方法：
   1. 彩色模板和被遍历彩色图片直接参与匹配；
@@ -143,14 +143,14 @@ python -m pytest
 
 ## 完整整合版（单一仓库，FindsBlur v1.3.1）
 
-> **开发分支 / Draft PR #7：尚未合并 main。** 此仓库现在自带 FindsBlur 还原计算源代码，后续下载不需要访问第二个私有 GitHub 仓库，也不需要离线合并两个 ZIP。
+> **v6.2.0 正式版已整合 FindsBlur。** 本仓库自带 FindsBlur 还原计算源代码，不需要额外下载独立计算仓库，也不需要手工融合两个 ZIP。
 
 - **源码位置**：`vendor/findsblur_v131/`，基线 `snailjayxxx/CIPA-Calc@09815ec8538b3410ba7c28adfc6a6bf6b6ba30d7`。独立计算仓库不改动；未包含原版商业 EXE、用户照片、RAW 或逆向证据文件。
-- **一个来源下载**：直接下载本仓库的整合分支 ZIP；编译后的集成 EXE 位于本仓库 **Actions → Build CIPA Crop + FindsBlur v1.3.1 (Integrated Windows EXE)** 的成功运行附件中。
+- **一个来源下载**：通过 [GitHub Releases](https://github.com/snailjayxxx/CIPA-Crop-coord/releases/latest) 下载包含裁切与 FindsBlur 计算功能的 `CIPA-Crop-Coord.exe`。
 - **一体化构建**：Windows CI 使用仓库内 C 代码与 IJG 官方 v8c 源码编译解码器，安装依赖，并打包 **包含计算核心的单文件 EXE**。不需要克隆 CIPA-Calc，也不用登录第二个仓库。
-- **裁切触发计算**：默认不勾选、成功保存至少 16 张裁切图才启动；并行计算 1～4 与裁切线程分开设置，全部计算后完成。可选 CalcDebug 输出。
+- **裁切触发计算**：默认不勾选；启用后成功保存第 4 张裁切图即开始计算，如果本批仅有 1～3 张成功裁切，则在裁切完成后计算；没有成功裁切图片则跳过。计算并行线程 1～4 独立设置，全部计算后完成。可选 CalcDebug 输出。
 - **本地构建**：若要在 Windows 本机手动打包，可运行 `build_windows_with_blur.bat`；需事先编译 IJG 8c 解码器，或直接使用本仓库 Actions 自动打包的 EXE。
-- **验收限制**：合成图/自动化检查只能证明执行链路可用。正式发布前仍需官方 EXE 的 110/113 张参考结果数值对照，未验证前不合并 main，不冒充官方一致。
+- **验收限制**：用户 Windows 实际运行验收与合成图/CI 自检通过，不代表官方 EXE 的 110/113 张参考结果已经完成逐项数值一致性对照；对此不冒充官方一致。
 
-**下载源码分支 ZIP**：https://github.com/snailjayxxx/CIPA-Crop-coord/archive/refs/heads/feature/match-crop-findblur-pipeline-20261105.zip
+**安全版源码（独立保留，不是正式版）**：https://github.com/snailjayxxx/CIPA-Crop-coord/tree/safety/memory-guard-20261111
 

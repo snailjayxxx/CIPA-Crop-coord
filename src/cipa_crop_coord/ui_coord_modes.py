@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import QTimer
+
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -190,10 +192,10 @@ class ResizeTab(ui.BatchTab):
 class MainWindow(ui.MainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
-        self.lang = "zh"
+        self.lang = "ja"
         self.setWindowTitle("CIPA Crop & Coord")
-        self.resize(1180, 860)
-        self.setMinimumSize(940, 700)
+        self.resize(1180, 800)
+        self.setMinimumSize(940, 560)
 
         toolbar = QToolBar()
         toolbar.setMovable(False)
@@ -207,9 +209,11 @@ class MainWindow(ui.MainWindow):
         self.combo.addItem("中文", "zh")
         self.combo.addItem("日本語", "ja")
         self.combo.addItem("English", "en")
+        self.combo.setCurrentIndex(self.combo.findData(self.lang))
         toolbar.addWidget(self.combo)
         self.combo.currentIndexChanged.connect(self.switch)
         self.build()
+        QTimer.singleShot(0, self.fit_active_tab)
 
     def task_tabs(self):
         return tuple(
@@ -232,6 +236,7 @@ class MainWindow(ui.MainWindow):
         self.tabs.addTab(self.b, tr(self.lang, "tab2"))
         self.tabs.addTab(self.c, tr(self.lang, "tab3"))
         self.tabs.addTab(self.d, tr(self.lang, "tab4"))
+        self.tabs.currentChanged.connect(self.fit_active_tab)
         self.setCentralWidget(self.tabs)
         if old:
             old.deleteLater()
@@ -251,6 +256,37 @@ class MainWindow(ui.MainWindow):
             return
         self.lang = new
         self.build()
+        QTimer.singleShot(0, self.fit_active_tab)
+
+    def fit_active_tab(self):
+        """Resize to the selected page, capped by the monitor work area."""
+        if not self.isVisible() or self.isMaximized():
+            return
+        page = self.tabs.currentWidget()
+        screen = self.screen() or QApplication.primaryScreen()
+        if page is None or screen is None:
+            return
+        available = screen.availableGeometry()
+        if isinstance(page, ui.MatchTab):
+            page.sync_scroll_height(available.height())
+        layout = page.layout()
+        if layout:
+            layout.activate()
+        natural = layout.sizeHint().height() if layout else page.sizeHint().height()
+        chrome = (
+            self.tabs.tabBar().sizeHint().height()
+            + self.statusBar().sizeHint().height()
+            + self.findChild(QToolBar).sizeHint().height()
+            + 34
+        )
+        max_height = max(self.minimumHeight(), available.height() - 16)
+        desired = min(max_height, max(self.minimumHeight(), natural + chrome))
+        width = min(self.width(), max(self.minimumWidth(), available.width() - 16))
+        self.resize(width, desired)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self.fit_active_tab)
 
     def closeEvent(self, event):
         if any(tab.running() for tab in self.task_tabs()):

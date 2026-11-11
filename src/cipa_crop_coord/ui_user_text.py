@@ -65,6 +65,7 @@ class MainWindow(video_ui.MainWindow):
         self.tabs.addTab(self.d, tr(self.lang, "tab4"))
         self.tabs.addTab(self.e, video_ui.txt(self.lang, "tab"))
         self.tabs.addTab(self.f, image_video_txt(self.lang, "tab"))
+        self.tabs.currentChanged.connect(self.fit_active_tab)
         self.setCentralWidget(self.tabs)
         if old:
             old.deleteLater()

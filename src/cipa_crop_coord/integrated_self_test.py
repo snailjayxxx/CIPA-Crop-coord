@@ -37,9 +37,9 @@ def self_test_integrated() -> int:
                 raise RuntimeError("CalcDebug v1.3.1 manifest was not created.")
 
             # IMPORTANT: the former self-test calculated one image directly,
-            # bypassing the 16-crop background pipeline used by actual users.
-            # Test the SAME deferred module import path with 17 completed JPGs:
-            # one 16-image starting batch plus the final one-image flush.
+            # bypassing the crop-triggered background pipeline used by users.
+            # Exercise the real pipeline with 17 completed JPGs, including
+            # its four-image starting batch and subsequent queued images.
             from shutil import copyfile
             from .blur_pipeline import BlurPipeline
             sample_dir = folder / "cropped"
@@ -58,10 +58,10 @@ def self_test_integrated() -> int:
                 pipeline.submit(index, path)
             pipeline_result = pipeline.finish()
             if pipeline_result.error:
-                raise RuntimeError("16-image background calculator failed: " + pipeline_result.error)
+                raise RuntimeError("Background calculator failed: " + pipeline_result.error)
             if pipeline_result.queued != 17 or pipeline_result.attempted != 17:
                 raise RuntimeError(
-                    "16-image streaming pipeline did not process all 17 photos: "
+                    "Streaming pipeline did not process all 17 photos: "
                     + str(pipeline_result)
                 )
             if not pipeline_target.is_file():
@@ -71,7 +71,7 @@ def self_test_integrated() -> int:
                 row.startswith(f"synthetic_crop_{index:03d}.jpg ")
                 for index, row in enumerate(rows)
             ):
-                raise RuntimeError("The 16-image streaming TXT sequence is incorrect.")
+                raise RuntimeError("The streaming TXT sequence is incorrect.")
         return 0
     except Exception as exc:
         # Frozen GUI applications can have no console: the failure exit code

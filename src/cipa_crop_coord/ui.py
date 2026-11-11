@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from PIL import Image
-from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QCloseEvent,
     QColor,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -45,6 +46,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTabWidget,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -117,6 +119,7 @@ QProgressBar {
 QProgressBar::chunk { background: #2d7be8; border-radius: 4px; }
 QTabBar::tab { padding: 9px 18px; background: #e8ebf0; }
 QTabBar::tab:selected { background: white; font-weight: 600; }
+QToolButton#cipaSectionToggle { border: 0; background: transparent; padding: 4px; font-weight: 600; text-align: left; }
 """
 
 
@@ -158,6 +161,12 @@ class PathChooser(QWidget):
         self.edit = QLineEdit()
         self.edit.setObjectName("cipaTextInput")
         button = QPushButton(tr(lang, "browse"))
+        # Leave room for full Chinese/Japanese glyphs plus Windows QSS padding.
+        button.setObjectName("cipaBrowseButton")
+        button.setMinimumWidth(max(98, button.fontMetrics().horizontalAdvance(button.text()) + 44))
+        button.setMinimumHeight(32)
+        button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.button = button
         button.clicked.connect(self.browse)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -181,6 +190,42 @@ class PathChooser(QWidget):
             )
         if value:
             self.edit.setText(value)
+
+
+class CollapsibleSection(QGroupBox):
+    """Clickable disclosure whose content really leaves the layout when closed."""
+
+    changed = Signal()
+
+    def __init__(self, title: str, body: QWidget, expanded: bool = False):
+        super().__init__()
+        self.setObjectName("cipaCollapsible")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 5, 8, 6)
+        layout.setSpacing(3)
+        self.toggle_button = QToolButton(self)
+        self.toggle_button.setObjectName("cipaSectionToggle")
+        self.toggle_button.setText(title)
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setAutoRaise(True)
+        self.toggle_button.setMinimumHeight(28)
+        self.toggle_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        layout.addWidget(self.toggle_button)
+        self.body = body
+        layout.addWidget(body)
+        self.toggle_button.toggled.connect(self._toggle)
+        self.toggle_button.setChecked(expanded)
+        self._toggle(expanded)
+
+    def _toggle(self, expanded: bool):
+        self.body.setVisible(expanded)
+        self.toggle_button.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self.layout().invalidate()
+        self.updateGeometry()
+        self.changed.emit()
 
 
 class SelectLabel(QLabel):
@@ -680,9 +725,19 @@ class BatchTab(QWidget):
         self.content.setContentsMargins(14, 14, 14, 14)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+        self.progress.setFormat("0/0")
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(130)
+        # Display nine text lines without expanding into a large empty area.
+        # The entire history stays in the document and remains scrollable.
+        self.log.setFixedHeight(
+            9 * self.log.fontMetrics().lineSpacing()
+            + int(2 * self.log.document().documentMargin())
+            + 2 * self.log.frameWidth()
+            + 12
+        )
+        self.log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.debug = QCheckBox(tr(lang, "debug"))
         self.debug.setToolTip(tr(lang, "debug_tip"))
         self.workers = manual_number(QSpinBox())
@@ -696,15 +751,16 @@ class BatchTab(QWidget):
         self.cancel.setEnabled(False)
         self.cancel.clicked.connect(self.stop)
 
-    def footer(self):
-        options = QHBoxLayout()
-        options.addWidget(self.debug)
-        options.addStretch()
-        options.addWidget(QLabel(tr(self.lang, "threads")))
-        options.addWidget(self.workers)
-        self.content.addLayout(options)
+    def footer(self, *, include_options=True):
+        if include_options:
+            options = QHBoxLayout()
+            options.addWidget(self.debug)
+            options.addStretch()
+            options.addWidget(QLabel(tr(self.lang, "threads")))
+            options.addWidget(self.workers)
+            self.content.addLayout(options)
         self.content.addWidget(self.progress)
-        self.content.addWidget(self.log, 1)
+        self.content.addWidget(self.log)
         buttons = QHBoxLayout()
         buttons.addStretch()
         buttons.addWidget(self.cancel)
@@ -718,6 +774,7 @@ class BatchTab(QWidget):
         if self.thread:
             return
         self.log.clear()
+        self.progress.setFormat("0/0")
         self.progress.setRange(0, 0)
         self.run.setEnabled(False)
         self.cancel.setEnabled(True)
@@ -748,7 +805,9 @@ class BatchTab(QWidget):
     def on_progress(self, current, total, message):
         self.progress.setRange(0, max(total, 1))
         self.progress.setValue(current)
-        self.log.appendPlainText(f"[{current}/{total}] {message}")
+        self.progress.setFormat(f"%v/{total}")
+        if message:
+            self.log.appendPlainText(f"[{current}/{total}] {message}")
 
     def on_done(self, summary):
         self.log.appendPlainText(
@@ -859,12 +918,28 @@ class MatchTab(BatchTab):
         super().__init__(lang)
         paths = QGroupBox(tr(lang, "paths"))
         form = QFormLayout(paths)
+        # Keep both worker rows on the same form column; WrapLongRows
+        # unpredictably wrapped just one row when CalcDebug was moved inline.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
         self.sample = PathChooser(lang, "file")
         self.input = PathChooser(lang, "folder")
         self.output = PathChooser(lang, "folder")
         form.addRow(tr(lang, "sample"), self.sample)
         form.addRow(tr(lang, "input"), self.input)
         form.addRow(tr(lang, "output"), self.output)
+
+        # Form labels occupy the shared label column. Both worker values and
+        # Debug switches occupy the field column, preventing width-dependent
+        # wrapping and clipping in a 940px window.
+        crop_options = QHBoxLayout()
+        crop_options.setSpacing(10)
+        self.crop_workers_label = QLabel(tr(lang, "crop_threads"))
+        crop_options.addWidget(self.workers)
+        crop_options.addSpacing(10)
+        crop_options.addWidget(self.debug)
+        crop_options.addStretch()
+        form.addRow(self.crop_workers_label, crop_options)
+
         self.blur_enabled = QCheckBox(tr(lang, "blur_output"))
         self.blur_enabled.setToolTip(tr(lang, "blur_tip"))
         self.blur_file = PathChooser(lang, "save", "txt_filter")
@@ -874,39 +949,110 @@ class MatchTab(BatchTab):
         self.blur_workers.setValue(DEFAULT_CALC_WORKERS)
         self.blur_workers.setMinimumWidth(95)
         self.blur_workers.setToolTip(tr(lang, "blur_threads_tip"))
-        blur_jobs = QHBoxLayout()
-        blur_jobs.addWidget(QLabel(tr(lang, "blur_calc_threads")))
-        blur_jobs.addWidget(self.blur_workers)
-        blur_jobs.addStretch()
-        form.addRow("", blur_jobs)
+        calc_options = QHBoxLayout()
+        calc_options.setSpacing(10)
+        self.calc_workers_label = QLabel(tr(lang, "blur_calc_threads"))
         self.calcdebug_enabled = QCheckBox(tr(lang, "calcdebug_enable"))
         self.calcdebug_enabled.setToolTip(tr(lang, "calcdebug_tip"))
+        calc_options.addWidget(self.blur_workers)
+        calc_options.addSpacing(10)
+        calc_options.addWidget(self.calcdebug_enabled)
+        calc_options.addStretch()
+        spin_width = max(
+            100, self.workers.sizeHint().width(), self.blur_workers.sizeHint().width()
+        )
+        self.workers.setFixedWidth(spin_width)
+        self.blur_workers.setFixedWidth(spin_width)
+        form.addRow(self.calc_workers_label, calc_options)
+
+        # Keep CalcDebug's folder picker on the original separate row;
+        # only the enable checkbox has moved beside the calc worker spinbox.
         self.calcdebug_folder = PathChooser(lang, "folder")
         self.calcdebug_folder.setToolTip(tr(lang, "calcdebug_tip"))
-        form.addRow(self.calcdebug_enabled, self.calcdebug_folder)
+        self.calcdebug_folder_label = QLabel(tr(lang, "calcdebug_folder"))
+        form.addRow(self.calcdebug_folder_label, self.calcdebug_folder)
+        self._suggested_crop_path = ""
         self._suggested_blur_path = ""
+        self.input.edit.textChanged.connect(self.suggest_crop_path)
         self.output.edit.textChanged.connect(self.suggest_blur_path)
         self.blur_enabled.toggled.connect(self.toggle_blur)
         self.calcdebug_enabled.toggled.connect(self.toggle_calcdebug)
         self.toggle_blur(False)
 
         self.opts = MatchOpts(lang, self.sample, self.input)
-
-        output = QGroupBox(tr(lang, "output_group"))
+        self.opts.setTitle("")
+        self.match_section = CollapsibleSection(tr(lang, "match_group"), self.opts)
+        output = QGroupBox("")
         output_form = QFormLayout(output)
         self.q = quality()
         output_form.addRow(tr(lang, "quality"), self.q)
         output_form.addRow("", QLabel(tr(lang, "name_note")))
+        self.output_section = CollapsibleSection(tr(lang, "output_group"), output)
 
-        self.content.addWidget(paths)
-        self.content.addWidget(self.opts)
-        self.content.addWidget(output)
+        # Scroll settings only when screen space is insufficient, keeping
+        # progress, log and action buttons visible at the bottom.
+        self.settings_panel = QWidget()
+        panel_layout = QVBoxLayout(self.settings_panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(5)
+        panel_layout.addWidget(paths)
+        panel_layout.addWidget(self.match_section)
+        panel_layout.addWidget(self.output_section)
+        self.settings_scroll = QScrollArea()
+        self.settings_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.settings_scroll.setWidget(self.settings_panel)
+        self.content.addWidget(self.settings_scroll)
+
         self.blur_progress_bar = QProgressBar()
         self.blur_progress_bar.setRange(0, 1)
+        self.blur_progress_bar.setFormat(f'{tr(lang, "calc_progress")}: 0/0')
         self.blur_progress_bar.setVisible(False)
-        self.content.addWidget(self.blur_progress_bar)
-        self.footer()
+        self.progress.setFormat(f'{tr(lang, "crop_progress")}: 0/0')
+        self.footer(include_options=False)
+        # Crop above calculation; both use image counts, never percent.
+        self.content.insertWidget(self.content.indexOf(self.log), self.blur_progress_bar)
+        self.match_section.changed.connect(self.request_resize)
+        self.output_section.changed.connect(self.request_resize)
         self.run.clicked.connect(self.go)
+
+    def sync_scroll_height(self, screen_height: int):
+        """Prefer fully visible settings; otherwise use the vertical scrollbar."""
+        self.settings_panel.layout().invalidate()
+        natural = self.settings_panel.sizeHint().height() + 6
+        available = max(180, int(screen_height) - 370)
+        target = min(max(180, natural), available)
+        if self.settings_scroll.minimumHeight() != target:
+            self.settings_scroll.setMinimumHeight(target)
+        self.content.invalidate()
+        self.updateGeometry()
+
+    def request_resize(self):
+        owner = self.window()
+        if owner is not self and hasattr(owner, "fit_active_tab"):
+            QTimer.singleShot(0, owner.fit_active_tab)
+
+    def on_progress(self, current, total, message):
+        super().on_progress(current, total, message)
+        self.progress.setFormat(f'{tr(self.lang, "crop_progress")}: %v/{total}')
+
+    def suggest_crop_path(self):
+        """Fill <input>/resize on folder selection without overwriting user choices.
+
+        Only update the field if it is empty or still contains the previous
+        automatic suggestion. The directory is created by the crop engine on
+        Start, rather than prematurely when browsing.
+        """
+        source_folder = self.input.text()
+        if not source_folder:
+            return
+        suggested = str(Path(source_folder) / "resize")
+        if not self.output.text() or self.output.text() == self._suggested_crop_path:
+            self.output.edit.setText(suggested)
+        self._suggested_crop_path = suggested
 
     def suggest_blur_path(self):
         folder = self.output.text()
@@ -930,10 +1076,9 @@ class MatchTab(BatchTab):
     def on_blur_progress(self, current, total, message):
         self.blur_progress_bar.setRange(0, max(1, total))
         self.blur_progress_bar.setValue(current)
-        self.blur_progress_bar.setFormat(
-            tr(self.lang, "blur_progress", done=current, total=total)
-        )
-        self.log.appendPlainText(message)
+        self.blur_progress_bar.setFormat(f'{tr(self.lang, "calc_progress")}: %v/{total}')
+        if message:
+            self.log.appendPlainText(message)
 
     def go(self):
         if not path_check(
@@ -988,6 +1133,8 @@ class MatchTab(BatchTab):
         self.blur_progress_bar.setVisible(blur_output is not None)
         self.blur_progress_bar.setRange(0, 1)
         self.blur_progress_bar.setValue(0)
+        self.blur_progress_bar.setFormat(f'{tr(self.lang, "calc_progress")}: 0/0')
+        self.request_resize()
         self.start(
             match_crop,
             {
@@ -1173,7 +1320,7 @@ class CoordTab(BatchTab):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.lang = "zh"
+        self.lang = "ja"
         self.setWindowTitle("CIPA Crop & Coord")
         self.resize(1180, 860)
         self.setMinimumSize(940, 700)
@@ -1189,6 +1336,7 @@ class MainWindow(QMainWindow):
         self.combo = QComboBox()
         self.combo.addItem("中文", "zh")
         self.combo.addItem("日本語", "ja")
+        self.combo.setCurrentIndex(self.combo.findData(self.lang))
         toolbar.addWidget(self.combo)
         self.combo.currentIndexChanged.connect(self.switch)
         self.build()

@@ -39,7 +39,7 @@ def _backend(recorder, *, started=None, resume=None, fail_name=None):
     return calculate, Path("test_decoder.exe")
 
 
-def test_disabled_or_too_few_crops_never_start(tmp_path):
+def test_fewer_than_four_crops_are_calculated_after_finish(tmp_path):
     calls = []
     target = tmp_path / "not_written.txt"
     pipeline = BlurPipeline(target, workers=2, expected=50, backend=_backend(calls))
@@ -47,14 +47,14 @@ def test_disabled_or_too_few_crops_never_start(tmp_path):
     for index in range(MIN_CALC_IMAGES - 1):
         pipeline.submit(index, tmp_path / f"{index:03}.jpg")
     result = pipeline.finish()
-    assert result.below_minimum is True
-    assert result.attempted == 0
-    assert result.queued == 15
-    assert calls == []
-    assert not target.exists()
+    assert result.below_minimum is False
+    assert result.attempted == MIN_CALC_IMAGES - 1
+    assert result.queued == MIN_CALC_IMAGES - 1
+    assert calls[0][0] == MIN_CALC_IMAGES - 1
+    assert target.exists()
 
 
-def test_calculation_starts_at_16_and_overlaps_more_crops(tmp_path):
+def test_calculation_starts_at_four_and_overlaps_more_crops(tmp_path):
     calls, started, resume = [], Event(), Event()
     target = tmp_path / "result.txt"
     pipeline = BlurPipeline(
@@ -63,16 +63,18 @@ def test_calculation_starts_at_16_and_overlaps_more_crops(tmp_path):
     )
     pipeline.start()
     # Mimic out-of-order arrivals from the crop worker pool.
-    for index in reversed(range(16)):
+    for index in reversed(range(4)):
         pipeline.submit(index, tmp_path / f"{index:03}.jpg")
-    assert started.wait(5), "the 16th saved crop must start calculation"
-    for index in reversed(range(16, 35)):
+    assert started.wait(5), "the 4th saved crop must start calculation"
+    for index in reversed(range(4, 35)):
         pipeline.submit(index, tmp_path / f"{index:03}.jpg")
     resume.set()
     result = pipeline.finish()
     assert result.queued == result.attempted == result.successful == 35
     assert result.failed == 0 and result.error == ""
-    assert [count for count, _, _ in calls] == [16, 4, 4, 4, 4, 3]
+    assert calls[0][0] == 4
+    assert sum(count for count, _, _ in calls) == 35
+    assert all(1 <= count <= 4 for count, _, _ in calls)
     assert all(workers == 4 for _, workers, _ in calls)
     lines = target.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 35
@@ -138,7 +140,9 @@ def test_calcdebug_v131_uses_one_local_run_folder_with_batch_sessions(tmp_path):
     for index in range(19):
         pipeline.submit(index, tmp_path / f"{index:03d}.jpg")
     result = pipeline.finish()
-    assert [batch[0] for batch in calls] == [16, 3]
+    assert calls[0][0] == 4
+    assert sum(batch[0] for batch in calls) == 19
+    assert all(batch[0] <= 3 for batch in calls[1:])
     assert result.attempted == result.successful == 19
     assert Path(result.calcdebug_path).is_dir()
     assert Path(result.calcdebug_path).parent == root
@@ -148,20 +152,18 @@ def test_calcdebug_v131_uses_one_local_run_folder_with_batch_sessions(tmp_path):
             encoding="utf-8",
         )
     )
-    assert len(manifest["calcdebug_sessions"]) == 2
+    assert len(manifest["calcdebug_sessions"]) == len(calls)
     assert manifest["images_successful"] == 19
     assert manifest["result_filenames"] == [f"{n:03d}.jpg" for n in range(19)]
 
 
-def test_calcdebug_does_not_create_images_before_16_crops(tmp_path):
+def test_calcdebug_does_not_create_images_when_zero_crops_saved(tmp_path):
     root = tmp_path / "CalcDebug"
     pipeline = BlurPipeline(
         tmp_path / "out.txt", workers=2, backend=_backend([]),
         calcdebug_root=root,
     )
     pipeline.start()
-    for index in range(15):
-        pipeline.submit(index, tmp_path / f"{index:03}.jpg")
     result = pipeline.finish()
     assert result.below_minimum
     assert result.calcdebug_path == ""
