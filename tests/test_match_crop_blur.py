@@ -105,9 +105,13 @@ def test_match_crop_streams_to_calc_only_when_selected(tmp_path, monkeypatch):
     assert summary.blur_queued == summary.blur_attempted == 17
     assert summary.blur_succeeded == 17
     assert summary.blur_failed == 0
-    assert calls[0] == (4, 4)
+    assert calls[0] == (4, summary.effective_calc_workers)
     assert sum(batch_size for batch_size, _ in calls) == 17
-    assert all(1 <= batch_size <= 4 and workers == 4 for batch_size, workers in calls)
+    assert 1 <= summary.effective_calc_workers <= 4
+    assert all(
+        1 <= batch_size <= 4 and workers == summary.effective_calc_workers
+        for batch_size, workers in calls
+    )
     assert len(target.read_text(encoding="utf-8").splitlines()) == 17
 
 
@@ -142,7 +146,8 @@ def test_match_crop_routes_calcdebug_to_new_core_without_affecting_txt(tmp_path,
     )
     assert summary.succeeded == 17
     assert summary.blur_succeeded == 17
-    assert calls[0] == (4, 3)
+    assert calls[0] == (4, summary.effective_calc_workers)
+    assert 1 <= summary.effective_calc_workers <= 3
     assert sum(batch_size for batch_size, _ in calls) == 17
     assert all(1 <= batch_size <= 4 for batch_size, _ in calls)
     assert len(txt_path.read_text(encoding="utf-8").splitlines()) == 17

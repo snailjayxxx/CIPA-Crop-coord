@@ -133,7 +133,9 @@ def choose_workers(
         available_bytes = available_memory_bytes()
     cpu = max(2, min(8, int(cpu_count or os.cpu_count() or 4)))
 
-    if available_bytes is None or available_bytes <= 0:
+    if available_bytes is not None and available_bytes <= 0:
+        raise MemoryBudgetError(0, 1)
+    if available_bytes is None:
         # Avoid promising arbitrary high parallelism without RAM information.
         crop = min(crop_requested, 2)
         calc = min(calc_requested, 1)
