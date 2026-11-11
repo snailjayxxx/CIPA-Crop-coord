@@ -14,6 +14,7 @@ from .locales import tr
 from .blur_pipeline import BlurPipeline, DEFAULT_CALC_WORKERS, MIN_CALC_IMAGES
 from . import blur_pipeline as blur_runtime
 from . import memory_guard
+from .crash_diagnostics import record_worker_plan
 
 EXT={".jpg",".jpeg",".png",".bmp",".tif",".tiff",".webp"}
 DEFAULT_SEARCH_MASK=100/6
@@ -201,6 +202,17 @@ def match_crop(sample,input_folder,output_folder,settings:MatchSettings,quality=
     s.effective_crop_workers = plan.crop_workers if plan else workers
     s.effective_calc_workers = plan.calc_workers if plan else (blur_workers if blur_output else 0)
     s.deferred_calculation = bool(plan and plan.defer_calculation)
+    if plan:
+        record_worker_plan(
+            selected_images=len(fs), source_pixels=plan.source_pixels,
+            crop_pixels=plan.crop_pixels, requested_crop=workers,
+            actual_crop=plan.crop_workers,
+            requested_calc=blur_workers if blur_output else 0,
+            actual_calc=plan.calc_workers,
+            available_gib=round(plan.available_bytes / memory_guard.GIB, 2)
+            if plan.available_bytes is not None else None,
+            deferred=plan.defer_calculation,
+        )
     if plan and plan.adjusted:
         key = "memory_workers_adjusted" if plan.available_bytes is not None else "memory_workers_unknown"
         note = tr(
