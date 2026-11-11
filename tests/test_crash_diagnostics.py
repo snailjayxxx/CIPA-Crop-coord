@@ -26,4 +26,4 @@ def test_worker_record_contains_only_statistics(tmp_path, monkeypatch):
     assert "image_count=110" in content
     assert "actual_crop=2" in content
     assert "available_gib=6.0" in content
-    assert "C:\\Users" not in content
+    assert "private_photo_filename" not in content
